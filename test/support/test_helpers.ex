@@ -26,10 +26,18 @@ defmodule CryptoExchange.TestHelpers do
   Sets up common mocks for tests.
   """
   def setup_mocks do
-    # Define all mocks
-    Mox.defmock(HTTPoisonMock, for: CryptoExchange.Behaviours.HTTPClientBehaviour)
-    Mox.defmock(WebSocketMock, for: CryptoExchange.Behaviours.WebSocketClientBehaviour)
-    Mox.defmock(BinanceMock, for: CryptoExchange.Behaviours.BinanceAPIBehaviour)
+    # Define all mocks (skip if already defined)
+    unless Code.ensure_loaded?(HTTPoisonMock) do
+      Mox.defmock(HTTPoisonMock, for: CryptoExchange.Behaviours.HTTPClientBehaviour)
+    end
+    
+    unless Code.ensure_loaded?(WebSocketMock) do
+      Mox.defmock(WebSocketMock, for: CryptoExchange.Behaviours.WebSocketClientBehaviour)
+    end
+    
+    unless Code.ensure_loaded?(BinanceMock) do
+      Mox.defmock(BinanceMock, for: CryptoExchange.Behaviours.BinanceAPIBehaviour)
+    end
     
     # Set global mode for all mocks
     Mox.set_mox_global()

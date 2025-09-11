@@ -2,19 +2,27 @@ defmodule CryptoExchange.PublicStreams.StreamManagerTest do
   use ExUnit.Case, async: true
   
   alias CryptoExchange.PublicStreams.StreamManager
-  alias CryptoExchange.{Registry, Config}
+  alias CryptoExchange.Config
   
   import ExUnit.CaptureLog
   
   @moduletag :stream_manager
   
   setup do
-    # Start required services
-    start_supervised!({Phoenix.PubSub, name: CryptoExchange.PubSub})
-    start_supervised!({Registry, keys: :duplicate, name: CryptoExchange.Registry})
+    # Start required services only if not already running
+    unless Process.whereis(CryptoExchange.PubSub) do
+      start_supervised!({Phoenix.PubSub, name: CryptoExchange.PubSub})
+    end
     
-    # Start StreamManager
-    {:ok, manager} = start_supervised({StreamManager, []})
+    # Start test registry with unique name
+    registry_name = :"TestRegistry_#{:rand.uniform(999999)}"
+    start_supervised!({Registry, keys: :duplicate, name: registry_name})
+    
+    # Start StreamManager only if not already running
+    manager = case start_supervised({StreamManager, []}) do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
+    end
     
     %{manager: manager}
   end
