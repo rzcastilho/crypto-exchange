@@ -118,6 +118,34 @@ defmodule CryptoExchange.Application do
         type: :worker
       },
 
+      # Enhanced User Management Infrastructure
+      # UserRegistry for fast user session lookups
+      %{
+        id: CryptoExchange.Trading.UserRegistry,
+        start: {CryptoExchange.Trading.UserRegistry, :start_link, [[]]},
+        restart: :permanent,
+        shutdown: 5_000,
+        type: :worker
+      },
+
+      # UserSecurityAuditor for comprehensive security logging
+      %{
+        id: CryptoExchange.Trading.UserSecurityAuditor,
+        start: {CryptoExchange.Trading.UserSecurityAuditor, :start_link, [[]]},
+        restart: :permanent,
+        shutdown: 10_000,
+        type: :worker
+      },
+
+      # UserMetrics for performance monitoring and analytics
+      %{
+        id: CryptoExchange.Trading.UserMetrics,
+        start: {CryptoExchange.Trading.UserMetrics, :start_link, [[]]},
+        restart: :permanent,
+        shutdown: 10_000,
+        type: :worker
+      },
+
       # Dynamic supervisor for user trading connections (Enhanced)  
       # Integrated with health monitoring and connection management
       %{
