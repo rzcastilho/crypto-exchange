@@ -68,18 +68,58 @@ defmodule CryptoExchange.Application do
       # Phoenix PubSub for message distribution across the system
       {Phoenix.PubSub, name: CryptoExchange.PubSub},
 
-      # Public market data streaming manager
-      # Manages WebSocket connections to exchanges for public data
+      # Connection Manager with circuit breaker and exponential backoff
+      # Critical infrastructure for managing all external connections with fault tolerance
+      %{
+        id: CryptoExchange.ConnectionManager,
+        start: {CryptoExchange.ConnectionManager, :start_link, [[]]},
+        restart: :permanent,
+        shutdown: 10_000,  # Allow time for graceful connection cleanup
+        type: :worker
+      },
+
+      # Health Monitor for comprehensive system monitoring and alerting
+      # Monitors connection health and system reliability
+      %{
+        id: CryptoExchange.HealthMonitor,
+        start: {CryptoExchange.HealthMonitor, :start_link, [[]]},
+        restart: :permanent,
+        shutdown: 5_000,
+        type: :worker
+      },
+
+      # Connection State Manager with automatic fallback strategies
+      # Manages connection states and orchestrates fallback mechanisms
+      %{
+        id: CryptoExchange.ConnectionStateManager,
+        start: {CryptoExchange.ConnectionStateManager, :start_link, [[]]},
+        restart: :permanent,
+        shutdown: 10_000,
+        type: :worker
+      },
+
+      # Error Recovery Supervisor for stream interruption handling
+      # Provides intelligent error recovery strategies for different failure types
+      %{
+        id: CryptoExchange.ErrorRecoverySupervisor,
+        start: {CryptoExchange.ErrorRecoverySupervisor, :start_link, [[]]},
+        restart: :permanent,
+        shutdown: 15_000,  # Allow time for recovery operations to complete
+        type: :supervisor
+      },
+
+      # Public market data streaming manager (Enhanced)
+      # Now integrates with ConnectionManager for robust fault tolerance
       %{
         id: CryptoExchange.PublicStreams.StreamManager,
         start: {CryptoExchange.PublicStreams.StreamManager, :start_link, [[]]},
         restart: :permanent,
-        shutdown: 5000,
+        shutdown: 10_000,  # Allow time for stream cleanup and reconnection
         type: :worker
       },
 
-      # Dynamic supervisor for user trading connections
-      # Each user gets their own isolated GenServer process
+      # Dynamic supervisor for user trading connections (Enhanced)  
+      # Integrated with health monitoring and connection management
       %{
         id: CryptoExchange.Trading.UserManager,
         start: {CryptoExchange.Trading.UserManager, :start_link, [[]]},
@@ -89,12 +129,13 @@ defmodule CryptoExchange.Application do
       }
     ]
 
-    # Supervision strategy configuration
+    # Enhanced supervision strategy configuration
+    # Uses :one_for_one with more conservative restart limits to prevent cascading failures
     opts = [
       strategy: :one_for_one,
       name: CryptoExchange.Supervisor,
-      max_restarts: 3,
-      max_seconds: 5
+      max_restarts: 5,     # Allow more restarts for resilience
+      max_seconds: 10      # Over a longer period to handle temporary issues
     ]
 
     case Supervisor.start_link(children, opts) do
@@ -143,12 +184,26 @@ defmodule CryptoExchange.Application do
   # Private Functions
 
   defp log_supervision_tree do
-    Logger.info("CryptoExchange supervision tree:")
+    Logger.info("CryptoExchange enhanced supervision tree:")
     Logger.info("├── Registry (CryptoExchange.Registry)")
     Logger.info("├── Phoenix.PubSub (CryptoExchange.PubSub)")
-    Logger.info("├── PublicStreams.StreamManager")
+    Logger.info("├── ConnectionManager (Circuit Breaker & Exponential Backoff)")
+    Logger.info("├── HealthMonitor (System Health & Alerting)")
+    Logger.info("├── ConnectionStateManager (Automatic Fallback Strategies)")
+    Logger.info("├── ErrorRecoverySupervisor (Stream Interruption Recovery)")
+    Logger.info("│   └── RecoveryWorker processes (created on-demand)")
+    Logger.info("├── PublicStreams.StreamManager (Enhanced with Fault Tolerance)")
     Logger.info("└── Trading.UserManager (DynamicSupervisor)")
     Logger.info("    └── UserConnection processes (created dynamically)")
+    Logger.info("")
+    Logger.info("Comprehensive Fault Tolerance Features:")
+    Logger.info("• Circuit Breaker Pattern for cascading failure prevention")
+    Logger.info("• Exponential backoff with jitter (1s → 30s max, per SPECIFICATION.md)")  
+    Logger.info("• Comprehensive health monitoring and real-time alerting")
+    Logger.info("• Intelligent error recovery for stream interruptions")
+    Logger.info("• Automatic fallback strategies with endpoint switching")
+    Logger.info("• Connection state management with graceful degradation")
+    Logger.info("• Rate limit awareness and Binance API compliance")
   end
 
   defp safe_count_connected_users do
