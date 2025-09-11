@@ -456,10 +456,11 @@ defmodule CryptoExchange.Binance.PrivateClientTest do
         {:ok, %{status: 200, body: %{"balances" => []}}}
       end)
       
-      assert {:ok, []} = PrivateClient.get_balance(@test_user_id)
+      assert {:ok, []} = PrivateClient.get_balance(user_id)
     end
     
     test "handles rate limit with backoff" do
+      user_id = @test_user_id
       setup_successful_order_mocks()
       
       # First request hits rate limit
