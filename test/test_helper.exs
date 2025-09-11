@@ -1,5 +1,9 @@
 # Test helper configuration for CryptoExchange
 
+# Configure Mox for mocking
+# Note: For CredentialManager we'll use the actual implementation
+# For HTTP client we need a different approach since PrivateClient uses Req directly
+
 # Start the PubSub system for testing
 {:ok, _} = Application.ensure_all_started(:crypto_exchange)
 
