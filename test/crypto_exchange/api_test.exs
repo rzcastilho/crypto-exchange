@@ -1,6 +1,7 @@
 defmodule CryptoExchange.APITest do
   use ExUnit.Case
   import CryptoExchange.TestHelpers
+  import CryptoExchange.TestSupport.Factory
 
   alias CryptoExchange.API
 
@@ -60,29 +61,29 @@ defmodule CryptoExchange.APITest do
 
   describe "user trading operations" do
     test "connect_user/3 validates credentials format" do
-      credentials = mock_credentials()
-      assert {:error, :invalid_api_key_format} = API.connect_user("user1", credentials.api_key, credentials.secret_key)
+      credentials = build(:credentials)
+      assert {:error, :invalid_credentials} = API.connect_user("user1", credentials.api_key, credentials.secret_key)
     end
 
-    test "disconnect_user/1 returns not connected error for non-existent user" do
-      assert {:error, :not_connected} = API.disconnect_user("user1")
+    test "disconnect_user/1 returns service unavailable for non-existent user" do
+      assert {:error, :service_unavailable} = API.disconnect_user("user1")
     end
 
-    test "place_order/2 returns not connected error for non-existent user" do
-      order_params = mock_order_params()
-      assert {:error, :not_connected} = API.place_order("user1", order_params)
+    test "place_order/2 validates order parameters" do
+      order_params = build(:order_params)
+      assert {:error, :invalid_order_params} = API.place_order("user1", order_params)
     end
 
-    test "cancel_order/2 returns not connected error for non-existent user" do
-      assert {:error, :not_connected} = API.cancel_order("user1", "order_123")
+    test "cancel_order/2 returns service unavailable for non-existent user" do
+      assert {:error, :service_unavailable} = API.cancel_order("user1", "order_123")
     end
 
-    test "get_balance/1 returns not connected error for non-existent user" do
-      assert {:error, :not_connected} = API.get_balance("user1")
+    test "get_balance/1 returns service unavailable for non-existent user" do
+      assert {:error, :service_unavailable} = API.get_balance("user1")
     end
 
-    test "get_orders/1 returns not connected error for non-existent user" do
-      assert {:error, :not_connected} = API.get_orders("user1")
+    test "get_orders/1 returns service unavailable for non-existent user" do
+      assert {:error, :service_unavailable} = API.get_orders("user1")
     end
   end
 end

@@ -8,15 +8,30 @@ defmodule CryptoExchange.MixProject do
       app: :crypto_exchange,
       version: @version,
       elixir: "~> 1.14",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: description(),
       package: package(),
       docs: docs(),
       name: "CryptoExchange",
-      source_url: "https://github.com/rzcastilho/crypto-exchange"
+      source_url: "https://github.com/rzcastilho/crypto-exchange",
+      
+      # Test configuration
+      test_coverage: [tool: ExCoveralls],
+      preferred_cli_env: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test,
+        "coveralls.cobertura": :test
+      ]
     ]
   end
+
+  # Specifies which paths to compile per environment
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [
@@ -36,7 +51,14 @@ defmodule CryptoExchange.MixProject do
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:mox, "~> 1.0", only: :test}
+      
+      # Testing infrastructure
+      {:mox, "~> 1.0", only: :test},
+      {:excoveralls, "~> 0.18", only: :test},
+      {:bypass, "~> 2.1", only: :test},
+      {:websockex, "~> 0.4.3", only: :test},
+      {:hammox, "~> 0.7", only: :test},
+      {:stream_data, "~> 1.0", only: :test}
     ]
   end
 
