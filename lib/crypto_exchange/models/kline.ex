@@ -200,7 +200,7 @@ defmodule CryptoExchange.Models.Kline do
       "200.5"
   """
   @spec price_change(t()) :: {:ok, String.t()} | {:error, String.t()}
-  def price_change(%__MODULE__{open_price: open, close_price: close}) 
+  def price_change(%__MODULE__{open_price: open, close_price: close})
       when is_binary(open) and is_binary(close) do
     with {:ok, open_decimal} <- safe_decimal(open),
          {:ok, close_decimal} <- safe_decimal(close) do
@@ -230,7 +230,7 @@ defmodule CryptoExchange.Models.Kline do
       "0.41770833333333333333"
   """
   @spec price_change_percent(t()) :: {:ok, String.t()} | {:error, String.t()}
-  def price_change_percent(%__MODULE__{open_price: open, close_price: close}) 
+  def price_change_percent(%__MODULE__{open_price: open, close_price: close})
       when is_binary(open) and is_binary(close) do
     with {:ok, open_decimal} <- safe_decimal(open),
          {:ok, close_decimal} <- safe_decimal(close) do
@@ -264,7 +264,7 @@ defmodule CryptoExchange.Models.Kline do
       true
   """
   @spec is_bullish?(t()) :: boolean()
-  def is_bullish?(%__MODULE__{open_price: open, close_price: close}) 
+  def is_bullish?(%__MODULE__{open_price: open, close_price: close})
       when is_binary(open) and is_binary(close) do
     with {:ok, open_decimal} <- safe_decimal(open),
          {:ok, close_decimal} <- safe_decimal(close) do
@@ -292,7 +292,7 @@ defmodule CryptoExchange.Models.Kline do
       true
   """
   @spec is_bearish?(t()) :: boolean()
-  def is_bearish?(%__MODULE__{open_price: open, close_price: close}) 
+  def is_bearish?(%__MODULE__{open_price: open, close_price: close})
       when is_binary(open) and is_binary(close) do
     with {:ok, open_decimal} <- safe_decimal(open),
          {:ok, close_decimal} <- safe_decimal(close) do
@@ -321,7 +321,7 @@ defmodule CryptoExchange.Models.Kline do
       "200.5"
   """
   @spec body_size(t()) :: {:ok, String.t()} | {:error, String.t()}
-  def body_size(%__MODULE__{open_price: open, close_price: close}) 
+  def body_size(%__MODULE__{open_price: open, close_price: close})
       when is_binary(open) and is_binary(close) do
     with {:ok, open_decimal} <- safe_decimal(open),
          {:ok, close_decimal} <- safe_decimal(close) do
@@ -355,7 +355,7 @@ defmodule CryptoExchange.Models.Kline do
       "99.5"
   """
   @spec upper_shadow(t()) :: {:ok, String.t()} | {:error, String.t()}
-  def upper_shadow(%__MODULE__{open_price: open, close_price: close, high_price: high}) 
+  def upper_shadow(%__MODULE__{open_price: open, close_price: close, high_price: high})
       when is_binary(open) and is_binary(close) and is_binary(high) do
     with {:ok, open_decimal} <- safe_decimal(open),
          {:ok, close_decimal} <- safe_decimal(close),
@@ -391,7 +391,7 @@ defmodule CryptoExchange.Models.Kline do
       "50.0"
   """
   @spec lower_shadow(t()) :: {:ok, String.t()} | {:error, String.t()}
-  def lower_shadow(%__MODULE__{open_price: open, close_price: close, low_price: low}) 
+  def lower_shadow(%__MODULE__{open_price: open, close_price: close, low_price: low})
       when is_binary(open) and is_binary(close) and is_binary(low) do
     with {:ok, open_decimal} <- safe_decimal(open),
          {:ok, close_decimal} <- safe_decimal(close),
@@ -434,10 +434,13 @@ defmodule CryptoExchange.Models.Kline do
   defp normalize_decimal_string(decimal_value) do
     decimal_value
     |> Decimal.to_string()
-    |> String.replace(~r/\.?0+$/, "")  # Remove trailing zeros and decimal point if needed
+    # Remove trailing zeros and decimal point if needed
+    |> String.replace(~r/\.?0+$/, "")
     |> case do
-      "" -> "0"  # Handle edge case where all digits were zeros
-      "0E-8" -> "0"  # Handle scientific notation for zero
+      # Handle edge case where all digits were zeros
+      "" -> "0"
+      # Handle scientific notation for zero
+      "0E-8" -> "0"
       result -> result
     end
   end

@@ -7,9 +7,6 @@ defmodule CryptoExchange.Binance.PublicStreamsTest do
   """
 
   use ExUnit.Case, async: false
-  import ExUnit.CaptureLog
-
-  alias CryptoExchange.Binance.PublicStreams
 
   @moduletag :integration
 
@@ -156,7 +153,7 @@ defmodule CryptoExchange.Binance.PublicStreamsTest do
       # - All ticker fields are extracted
       # - Parsed data matches expected structure
 
-      ticker_message = %{
+      _ticker_message = %{
         "stream" => "btcusdt@ticker",
         "data" => %{
           "e" => "24hrTicker",
@@ -180,7 +177,7 @@ defmodule CryptoExchange.Binance.PublicStreamsTest do
       # - Bids and asks arrays are preserved
       # - Symbol and update IDs are extracted
 
-      depth_message = %{
+      _depth_message = %{
         "stream" => "btcusdt@depth5",
         "data" => %{
           "e" => "depthUpdate",
@@ -201,7 +198,7 @@ defmodule CryptoExchange.Binance.PublicStreamsTest do
       # - Price, quantity, and timing data are extracted
       # - Trade direction is preserved
 
-      trade_message = %{
+      _trade_message = %{
         "stream" => "btcusdt@trade",
         "data" => %{
           "e" => "trade",
@@ -315,22 +312,8 @@ defmodule CryptoExchange.Binance.PublicStreamsTest do
   end
 
   # Helper functions for test setup and mocking
-
-  defp start_supervised_public_streams(opts \\ []) do
-    # TODO: Implement helper for starting PublicStreams under test supervision
-    # Should provide clean setup and teardown for each test
-    {:ok, self()}
-  end
-
-  defp simulate_websocket_message(pid, message) do
-    # TODO: Implement helper for simulating WebSocket messages
-    # Should allow tests to inject messages as if from Binance
-    :ok
-  end
-
-  defp wait_for_pubsub_message(topic, timeout \\ 1000) do
-    # TODO: Implement helper for waiting on PubSub messages
-    # Should allow tests to verify message broadcasting
-    {:ok, nil}
-  end
+  # TODO: Implement helper functions when actual tests are written:
+  # - start_supervised_public_streams/1 for test supervision
+  # - simulate_websocket_message/2 for injecting test messages  
+  # - wait_for_pubsub_message/2 for verifying message broadcasting
 end

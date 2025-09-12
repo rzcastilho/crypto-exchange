@@ -7,11 +7,11 @@ defmodule CryptoExchange.Models.KlineTest do
     test "successfully parses a complete Binance kline message" do
       data = %{
         "e" => "kline",
-        "E" => 1672515782136,
+        "E" => 1_672_515_782_136,
         "s" => "BTCUSDT",
         "k" => %{
-          "t" => 1672515780000,
-          "T" => 1672515839999,
+          "t" => 1_672_515_780_000,
+          "T" => 1_672_515_839_999,
           "s" => "BTCUSDT",
           "i" => "1m",
           "f" => 100,
@@ -33,10 +33,10 @@ defmodule CryptoExchange.Models.KlineTest do
       {:ok, kline} = Kline.parse(data)
 
       assert kline.event_type == "kline"
-      assert kline.event_time == 1672515782136
+      assert kline.event_time == 1_672_515_782_136
       assert kline.symbol == "BTCUSDT"
-      assert kline.kline_start_time == 1672515780000
-      assert kline.kline_close_time == 1672515839999
+      assert kline.kline_start_time == 1_672_515_780_000
+      assert kline.kline_close_time == 1_672_515_839_999
       assert kline.interval == "1m"
       assert kline.first_trade_id == 100
       assert kline.last_trade_id == 200
@@ -77,11 +77,11 @@ defmodule CryptoExchange.Models.KlineTest do
     test "handles integer timestamps and IDs correctly" do
       data = %{
         "e" => "kline",
-        "E" => 1672515782136,
+        "E" => 1_672_515_782_136,
         "s" => "BTCUSDT",
         "k" => %{
-          "t" => 1672515780000,
-          "T" => 1672515839999,
+          "t" => 1_672_515_780_000,
+          "T" => 1_672_515_839_999,
           "f" => 100,
           "L" => 200,
           "n" => 150
@@ -90,9 +90,9 @@ defmodule CryptoExchange.Models.KlineTest do
 
       {:ok, kline} = Kline.parse(data)
 
-      assert kline.event_time == 1672515782136
-      assert kline.kline_start_time == 1672515780000
-      assert kline.kline_close_time == 1672515839999
+      assert kline.event_time == 1_672_515_782_136
+      assert kline.kline_start_time == 1_672_515_780_000
+      assert kline.kline_close_time == 1_672_515_839_999
       assert kline.first_trade_id == 100
       assert kline.last_trade_id == 200
       assert kline.number_of_trades == 150
@@ -114,9 +114,9 @@ defmodule CryptoExchange.Models.KlineTest do
 
       {:ok, kline} = Kline.parse(data)
 
-      assert kline.event_time == 1672515782136
-      assert kline.kline_start_time == 1672515780000
-      assert kline.kline_close_time == 1672515839999
+      assert kline.event_time == 1_672_515_782_136
+      assert kline.kline_start_time == 1_672_515_780_000
+      assert kline.kline_close_time == 1_672_515_839_999
       assert kline.first_trade_id == 100
       assert kline.last_trade_id == 200
       assert kline.number_of_trades == 150
@@ -145,7 +145,7 @@ defmodule CryptoExchange.Models.KlineTest do
     test "handles missing kline data object" do
       data = %{
         "e" => "kline",
-        "E" => 1672515782136,
+        "E" => 1_672_515_782_136,
         "s" => "BTCUSDT"
       }
 
@@ -519,11 +519,11 @@ defmodule CryptoExchange.Models.KlineTest do
       # Real example format from Binance documentation
       data = %{
         "e" => "kline",
-        "E" => 123456789,
+        "E" => 123_456_789,
         "s" => "BNBBTC",
         "k" => %{
-          "t" => 123400000,
-          "T" => 123460000,
+          "t" => 123_400_000,
+          "T" => 123_460_000,
           "s" => "BNBBTC",
           "i" => "1m",
           "f" => 100,
@@ -545,7 +545,7 @@ defmodule CryptoExchange.Models.KlineTest do
       {:ok, kline} = Kline.parse(data)
 
       assert kline.event_type == "kline"
-      assert kline.event_time == 123456789
+      assert kline.event_time == 123_456_789
       assert kline.symbol == "BNBBTC"
       assert kline.interval == "1m"
       assert kline.open_price == "0.0010"
@@ -562,19 +562,37 @@ defmodule CryptoExchange.Models.KlineTest do
       assert change == "0.001"
 
       {:ok, percent} = Kline.price_change_percent(kline)
-      assert percent == "100"  # 100% increase
+      # 100% increase
+      assert percent == "100"
 
       {:ok, body} = Kline.body_size(kline)
       assert body == "0.001"
     end
 
     test "parses kline with different intervals" do
-      intervals = ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"]
+      intervals = [
+        "1s",
+        "1m",
+        "3m",
+        "5m",
+        "15m",
+        "30m",
+        "1h",
+        "2h",
+        "4h",
+        "6h",
+        "8h",
+        "12h",
+        "1d",
+        "3d",
+        "1w",
+        "1M"
+      ]
 
       for interval <- intervals do
         data = %{
           "e" => "kline",
-          "E" => 123456789,
+          "E" => 123_456_789,
           "s" => "BTCUSDT",
           "k" => %{
             "i" => interval,
@@ -592,21 +610,22 @@ defmodule CryptoExchange.Models.KlineTest do
     test "parses closed kline correctly" do
       data = %{
         "e" => "kline",
-        "E" => 123456789,
+        "E" => 123_456_789,
         "s" => "BTCUSDT",
         "k" => %{
-          "t" => 123400000,
-          "T" => 123459999,
+          "t" => 123_400_000,
+          "T" => 123_459_999,
           "i" => "1m",
           "o" => "50000.00",
           "c" => "50100.00",
-          "x" => true  # Kline is closed
+          # Kline is closed
+          "x" => true
         }
       }
 
       {:ok, kline} = Kline.parse(data)
       assert kline.is_kline_closed == true
-      assert kline.kline_close_time == 123459999
+      assert kline.kline_close_time == 123_459_999
     end
   end
 
