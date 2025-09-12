@@ -442,7 +442,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   defp handle_binance_message(%{"e" => "kline", "s" => symbol, "k" => kline_data}) do
     Logger.debug("Received kline data for #{symbol}")
-    
+
     case parse_kline_message(symbol, kline_data) do
       {:ok, parsed_data} ->
         broadcast_market_data(parsed_data)
@@ -454,7 +454,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   defp handle_binance_message(%{"e" => "trade", "s" => symbol} = message) do
     Logger.debug("Received trade data for #{symbol}")
-    
+
     case parse_trade_message(symbol, message) do
       {:ok, parsed_data} ->
         broadcast_market_data(parsed_data)
@@ -466,7 +466,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   defp handle_binance_message(%{"e" => "24hrTicker", "s" => symbol} = message) do
     Logger.debug("Received ticker data for #{symbol}")
-    
+
     case parse_ticker_message(symbol, message) do
       {:ok, parsed_data} ->
         broadcast_market_data(parsed_data)
@@ -478,7 +478,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   defp handle_binance_message(%{"asks" => _asks, "bids" => _bids, "lastUpdateId" => _} = message) do
     Logger.debug("Received depth data")
-    
+
     case parse_depth_message(message) do
       {:ok, parsed_data} ->
         broadcast_market_data(parsed_data)
@@ -622,7 +622,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
   defp parse_kline_message(symbol, kline_data) do
     # Extract interval from the kline data
     interval = kline_data["i"]
-    
+
     case Kline.parse(kline_data) do
       {:ok, kline} ->
         parsed = %{
@@ -647,14 +647,15 @@ defmodule CryptoExchange.Binance.PublicStreams do
       "bids" => bids,
       "lastUpdateId" => last_update_id
     }
-    
+
     case OrderBook.parse(order_book_data) do
       {:ok, order_book} ->
         # Note: We might need to track which symbols are subscribed to determine the symbol
         # For now, we'll use a placeholder approach
         parsed = %{
           type: :depth,
-          symbol: "UNKNOWN",  # This needs to be fixed by tracking subscriptions
+          # This needs to be fixed by tracking subscriptions
+          symbol: "UNKNOWN",
           data: order_book
         }
 
