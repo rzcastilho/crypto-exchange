@@ -206,17 +206,21 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
     new_state = %{state | subscriptions: new_subscriptions}
 
-    # Send subscription message if connected
-    case state.websocket do
-      nil ->
+    # Send subscription message only if fully connected
+    case {state.websocket, state.connection_status} do
+      {nil, _} ->
         Logger.debug("Not connected, will subscribe when connection is established")
         {:reply, :ok, new_state}
 
-      websocket ->
-        case send_subscription_message(websocket, streams, "SUBSCRIBE") do
+      {_, :connected} ->
+        case send_subscription_message(state.websocket, streams, "SUBSCRIBE") do
           :ok -> {:reply, :ok, new_state}
           {:error, reason} -> {:reply, {:error, reason}, new_state}
         end
+      
+      {_, status} ->
+        Logger.debug("Connection status is #{status}, will subscribe when fully connected")
+        {:reply, :ok, new_state}
     end
   end
 
@@ -230,17 +234,21 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
     new_state = %{state | subscriptions: new_subscriptions}
 
-    # Send unsubscription message if connected
-    case state.websocket do
-      nil ->
+    # Send unsubscription message only if fully connected
+    case {state.websocket, state.connection_status} do
+      {nil, _} ->
         Logger.debug("Not connected, removing from subscription list only")
         {:reply, :ok, new_state}
 
-      websocket ->
-        case send_subscription_message(websocket, streams, "UNSUBSCRIBE") do
+      {_, :connected} ->
+        case send_subscription_message(state.websocket, streams, "UNSUBSCRIBE") do
           :ok -> {:reply, :ok, new_state}
           {:error, reason} -> {:reply, {:error, reason}, new_state}
         end
+      
+      {_, status} ->
+        Logger.debug("Connection status is #{status}, removing from subscription list only")
+        {:reply, :ok, new_state}
     end
   end
 
@@ -268,12 +276,15 @@ defmodule CryptoExchange.Binance.PublicStreams do
         Logger.info("Successfully connected to Binance WebSocket")
 
         # Reset backoff on successful connection but don't subscribe yet
+        # Set a fallback timer in case onconnect callback doesn't fire
+        fallback_timer = Process.send_after(self(), :connection_timeout, 2000)
+        
         new_state = %{
           state
           | websocket: websocket,
             connection_status: :connecting,
             backoff: @initial_backoff,
-            reconnect_timer: nil,
+            reconnect_timer: fallback_timer,
             pending_subscriptions: MapSet.to_list(state.subscriptions)
         }
 
@@ -308,21 +319,14 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   @impl true
   def handle_info(:websocket_connected, state) do
-    Logger.debug("WebSocket connection confirmed")
-    
-    # Now that connection is confirmed, subscribe to pending streams
-    new_state = 
-      case {state.websocket, state.pending_subscriptions} do
-        {websocket, streams} when websocket != nil and length(streams) > 0 ->
-          Logger.debug("Subscribing to pending streams: #{inspect(streams)}")
-          send_subscription_message(websocket, streams, "SUBSCRIBE")
-          %{state | connection_status: :connected, pending_subscriptions: []}
-        
-        _ ->
-          %{state | connection_status: :connected, pending_subscriptions: []}
-      end
-    
-    {:noreply, new_state}
+    Logger.info("WebSocket connection confirmed - processing pending subscriptions")
+    handle_connection_confirmed(state)
+  end
+
+  @impl true
+  def handle_info(:connection_timeout, state) do
+    Logger.info("Connection timeout reached - assuming WebSocket is ready")
+    handle_connection_confirmed(state)
   end
 
   @impl true
@@ -408,12 +412,15 @@ defmodule CryptoExchange.Binance.PublicStreams do
       {:ok, json} ->
         Logger.debug("Sending #{method} message: #{json}")
 
+        # Check websocket client state before sending
         case :websocket_client.cast(websocket, {:text, json}) do
           :ok ->
+            Logger.debug("WebSocket message sent successfully")
             :ok
 
           error ->
             Logger.error("Failed to send WebSocket message: #{inspect(error)}")
+            Logger.error("WebSocket client might not be properly connected")
             {:error, error}
         end
 
@@ -587,5 +594,27 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   defp build_topic_with_interval(stream_type, symbol, interval) do
     "binance:#{stream_type}:#{symbol}:#{interval}"
+  end
+
+  defp handle_connection_confirmed(state) do
+    # Cancel any pending connection timeout
+    if state.reconnect_timer do
+      Process.cancel_timer(state.reconnect_timer)
+    end
+    
+    # Now that connection is confirmed, subscribe to pending streams
+    new_state = 
+      case {state.websocket, state.pending_subscriptions} do
+        {websocket, streams} when websocket != nil and length(streams) > 0 ->
+          Logger.info("Subscribing to pending streams: #{inspect(streams)}")
+          send_subscription_message(websocket, streams, "SUBSCRIBE")
+          %{state | connection_status: :connected, pending_subscriptions: [], reconnect_timer: nil}
+        
+        _ ->
+          Logger.info("No pending subscriptions, marking as connected")
+          %{state | connection_status: :connected, pending_subscriptions: [], reconnect_timer: nil}
+      end
+    
+    {:noreply, new_state}
   end
 end

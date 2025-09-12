@@ -18,7 +18,7 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
 
   @impl :websocket_client
   def onconnect(_req, state) do
-    Logger.debug("WebSocket connected")
+    Logger.info("WebSocket onconnect callback triggered - sending :websocket_connected")
     send(state.parent, :websocket_connected)
     {:ok, state}
   end
