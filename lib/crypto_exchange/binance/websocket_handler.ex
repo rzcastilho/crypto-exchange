@@ -5,6 +5,15 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
   This module implements the :websocket_client behavior and handles
   the low-level WebSocket communication with Binance, forwarding
   messages to the PublicStreams GenServer.
+  
+  ## Known Issue
+  
+  The websocket_client library (v1.5.0) has connection handshake issues that may 
+  cause the first connection attempt to fail with FunctionClauseError. However,
+  the reconnection mechanism works reliably, and subsequent connections succeed.
+  
+  The race condition fix in PublicStreams ensures that even with these connection
+  issues, subscriptions are handled gracefully and work correctly after reconnection.
   """
 
   require Logger
@@ -18,7 +27,7 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
 
   @impl :websocket_client
   def onconnect(_req, state) do
-    Logger.info("WebSocket onconnect callback triggered - sending :websocket_connected")
+    Logger.info("WebSocket onconnect callback triggered - connection established")
     send(state.parent, :websocket_connected)
     {:ok, state}
   end
