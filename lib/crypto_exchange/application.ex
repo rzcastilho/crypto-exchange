@@ -11,7 +11,8 @@ defmodule CryptoExchange.Application do
   CryptoExchange.Application
   ├── Registry (CryptoExchange.Registry)
   ├── Phoenix.PubSub (CryptoExchange.PubSub)
-  ├── PublicStreams.StreamManager
+  ├── Binance.PublicStreams (WebSocket Adapter)
+  ├── PublicStreams.StreamManager 
   └── Trading.UserManager (DynamicSupervisor)
       └── UserConnection (per user)
   ```
@@ -20,7 +21,8 @@ defmodule CryptoExchange.Application do
 
   - **Registry**: Enables process discovery and registration across the system
   - **Phoenix.PubSub**: Provides pub/sub messaging for market data distribution
-  - **StreamManager**: GenServer managing public market data streams from exchanges
+  - **Binance.PublicStreams**: WebSocket adapter managing connection to Binance streams
+  - **StreamManager**: GenServer managing public market data stream subscriptions
   - **UserManager**: DynamicSupervisor for isolated user trading connections
 
   ## Supervision Strategy
@@ -61,6 +63,16 @@ defmodule CryptoExchange.Application do
         start: {Phoenix.PubSub.Supervisor, :start_link, [[name: CryptoExchange.PubSub]]},
         restart: :permanent,
         type: :supervisor
+      },
+
+      # Binance WebSocket adapter for public market data
+      # Restart: :permanent - core functionality for market data streams
+      %{
+        id: CryptoExchange.Binance.PublicStreams,
+        start: {CryptoExchange.Binance.PublicStreams, :start_link, [[]]},
+        restart: :permanent,
+        type: :worker,
+        shutdown: 5000
       },
 
       # Public market data streaming manager
