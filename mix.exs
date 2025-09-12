@@ -23,7 +23,8 @@ defmodule CryptoExchange.MixProject do
       {:phoenix_pubsub, "~> 2.1"},
       {:jason, "~> 1.4"},
       {:req, "~> 0.4.0"},
-      {:websocket_client, "~> 1.5"}
+      {:websocket_client, "~> 1.5"},
+      {:decimal, "~> 2.0"}
     ]
   end
 end
