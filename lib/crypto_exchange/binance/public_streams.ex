@@ -186,7 +186,8 @@ defmodule CryptoExchange.Binance.PublicStreams do
       subscriptions: MapSet.new(),
       backoff: @initial_backoff,
       connection_status: :disconnected,
-      reconnect_timer: nil
+      reconnect_timer: nil,
+      pending_subscriptions: []
     }
 
     # Connect immediately
@@ -248,6 +249,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
     status =
       case state.connection_status do
         :connected -> {:connected, MapSet.to_list(state.subscriptions)}
+        :connecting -> {:connecting, "WebSocket connected, waiting for subscription confirmation"}
         :disconnected -> {:disconnected, "Not connected"}
         :reconnecting -> {:reconnecting, state.backoff}
       end
@@ -265,21 +267,15 @@ defmodule CryptoExchange.Binance.PublicStreams do
       {:ok, websocket} ->
         Logger.info("Successfully connected to Binance WebSocket")
 
-        # Reset backoff on successful connection
+        # Reset backoff on successful connection but don't subscribe yet
         new_state = %{
           state
           | websocket: websocket,
-            connection_status: :connected,
+            connection_status: :connecting,
             backoff: @initial_backoff,
-            reconnect_timer: nil
+            reconnect_timer: nil,
+            pending_subscriptions: MapSet.to_list(state.subscriptions)
         }
-
-        # Subscribe to all active streams
-        streams = MapSet.to_list(state.subscriptions)
-
-        if not Enum.empty?(streams) do
-          send_subscription_message(websocket, streams, "SUBSCRIBE")
-        end
 
         {:noreply, new_state}
 
@@ -300,7 +296,12 @@ defmodule CryptoExchange.Binance.PublicStreams do
   def handle_info({:websocket_disconnect, _reason}, state) do
     Logger.warning("WebSocket disconnected")
 
-    new_state = %{state | websocket: nil, connection_status: :disconnected}
+    new_state = %{
+      state 
+      | websocket: nil, 
+        connection_status: :disconnected,
+        pending_subscriptions: MapSet.to_list(state.subscriptions)
+    }
 
     schedule_reconnect(new_state)
   end
@@ -308,7 +309,20 @@ defmodule CryptoExchange.Binance.PublicStreams do
   @impl true
   def handle_info(:websocket_connected, state) do
     Logger.debug("WebSocket connection confirmed")
-    {:noreply, state}
+    
+    # Now that connection is confirmed, subscribe to pending streams
+    new_state = 
+      case {state.websocket, state.pending_subscriptions} do
+        {websocket, streams} when websocket != nil and length(streams) > 0 ->
+          Logger.debug("Subscribing to pending streams: #{inspect(streams)}")
+          send_subscription_message(websocket, streams, "SUBSCRIBE")
+          %{state | connection_status: :connected, pending_subscriptions: []}
+        
+        _ ->
+          %{state | connection_status: :connected, pending_subscriptions: []}
+      end
+    
+    {:noreply, new_state}
   end
 
   @impl true
@@ -328,7 +342,12 @@ defmodule CryptoExchange.Binance.PublicStreams do
   def handle_info({:websocket_error, reason}, state) do
     Logger.error("WebSocket error: #{inspect(reason)}")
 
-    new_state = %{state | websocket: nil, connection_status: :disconnected}
+    new_state = %{
+      state 
+      | websocket: nil, 
+        connection_status: :disconnected,
+        pending_subscriptions: MapSet.to_list(state.subscriptions)
+    }
 
     schedule_reconnect(new_state)
   end
