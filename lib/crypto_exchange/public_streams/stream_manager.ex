@@ -136,45 +136,92 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
     # Generate the Phoenix.PubSub topic for this stream
     topic = build_topic(stream_type, symbol)
 
-    # In future phases, this will:
-    # 1. Check if we already have a connection for this symbol/stream
-    # 2. Establish WebSocket connection if needed
-    # 3. Send subscription message to exchange
-    # 4. Track the subscription in state
+    # Build Binance stream name based on type and symbol
+    stream_name = build_binance_stream_name(stream_type, symbol, params)
 
-    # For now, just track the subscription and return the topic
+    # Track the subscription
     subscription_key = {stream_type, symbol}
 
     updated_subscriptions =
-      Map.put(state.subscriptions, subscription_key, %{
-        topic: topic,
-        params: params,
-        subscribers: 1
-      })
+      case Map.get(state.subscriptions, subscription_key) do
+        nil ->
+          # New subscription - subscribe to Binance stream
+          case CryptoExchange.Binance.PublicStreams.subscribe(stream_name) do
+            :ok ->
+              Logger.info("Successfully subscribed to Binance stream: #{stream_name}")
+
+              Map.put(state.subscriptions, subscription_key, %{
+                topic: topic,
+                params: params,
+                subscribers: 1,
+                stream_name: stream_name
+              })
+
+            {:error, reason} ->
+              Logger.error(
+                "Failed to subscribe to Binance stream #{stream_name}: #{inspect(reason)}"
+              )
+
+              state.subscriptions
+          end
+
+        existing ->
+          # Existing subscription - increment subscriber count
+          Logger.debug("Incrementing subscriber count for #{stream_name}")
+
+          Map.put(state.subscriptions, subscription_key, %{
+            existing
+            | subscribers: existing.subscribers + 1
+          })
+      end
 
     new_state = %{state | subscriptions: updated_subscriptions}
 
-    {:reply, {:ok, topic}, new_state}
+    case Map.get(updated_subscriptions, subscription_key) do
+      nil -> {:reply, {:error, "Failed to subscribe to stream"}, new_state}
+      _subscription -> {:reply, {:ok, topic}, new_state}
+    end
   end
 
   @impl true
   def handle_call({:unsubscribe, symbol}, _from, state) do
     Logger.debug("Unsubscribe request for #{symbol}")
 
-    # In future phases, this will:
-    # 1. Find all active subscriptions for the symbol
-    # 2. Decrement subscriber count or remove subscription
-    # 3. Close WebSocket connection if no more subscribers
-    # 4. Update state accordingly
-
-    # For now, just remove all subscriptions for this symbol
-    updated_subscriptions =
+    # Find all subscriptions for this symbol and handle unsubscription
+    {streams_to_unsubscribe, updated_subscriptions} =
       state.subscriptions
-      |> Enum.reject(fn {{_stream_type, sub_symbol}, _data} -> sub_symbol == symbol end)
-      |> Map.new()
+      |> Enum.reduce({[], %{}}, fn {{_stream_type, sub_symbol} = key, data}, {streams, acc} ->
+        if sub_symbol == symbol do
+          # Decrement subscriber count
+          new_count = data.subscribers - 1
+
+          if new_count <= 0 do
+            # No more subscribers, add to unsubscribe list
+            {[data.stream_name | streams], acc}
+          else
+            # Still have subscribers, keep with decremented count
+            {streams, Map.put(acc, key, %{data | subscribers: new_count})}
+          end
+        else
+          # Different symbol, keep as is
+          {streams, Map.put(acc, key, data)}
+        end
+      end)
+
+    # Unsubscribe from Binance streams that have no more subscribers
+    if not Enum.empty?(streams_to_unsubscribe) do
+      case CryptoExchange.Binance.PublicStreams.unsubscribe(streams_to_unsubscribe) do
+        :ok ->
+          Logger.info(
+            "Successfully unsubscribed from Binance streams: #{inspect(streams_to_unsubscribe)}"
+          )
+
+        {:error, reason} ->
+          Logger.error("Failed to unsubscribe from Binance streams: #{inspect(reason)}")
+      end
+    end
 
     new_state = %{state | subscriptions: updated_subscriptions}
-
     {:reply, :ok, new_state}
   end
 
@@ -194,5 +241,21 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
 
   defp build_topic(stream_type, symbol) do
     "binance:#{stream_type}:#{String.upcase(symbol)}"
+  end
+
+  defp build_binance_stream_name(stream_type, symbol, params) do
+    base_symbol = String.downcase(symbol)
+
+    case stream_type do
+      :ticker ->
+        "#{base_symbol}@ticker"
+
+      :depth ->
+        level = Map.get(params, :level, 5)
+        "#{base_symbol}@depth#{level}"
+
+      :trades ->
+        "#{base_symbol}@trade"
+    end
   end
 end
