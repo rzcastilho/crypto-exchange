@@ -106,6 +106,29 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
   end
 
   @doc """
+  Subscribes to kline (candlestick) data for a given symbol and interval.
+  Returns the Phoenix.PubSub topic for listening to updates.
+
+  ## Parameters
+  - `symbol` - Trading symbol (e.g., "BTCUSDT")
+  - `interval` - Time interval for klines (default: "1m")
+    Supported intervals: 1s, 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
+
+  ## Examples
+      # Subscribe to 1-minute klines for BTCUSDT
+      {:ok, topic} = StreamManager.subscribe_to_klines("BTCUSDT", "1m")
+      
+      # Subscribe to 5-minute klines for ETHUSDT  
+      {:ok, topic} = StreamManager.subscribe_to_klines("ETHUSDT", "5m")
+      
+      # Subscribe to daily klines for BNBUSDT
+      {:ok, topic} = StreamManager.subscribe_to_klines("BNBUSDT", "1d")
+  """
+  def subscribe_to_klines(symbol, interval \\ "1m") do
+    GenServer.call(@name, {:subscribe, :klines, symbol, %{interval: interval}})
+  end
+
+  @doc """
   Unsubscribes from all streams for a given symbol.
   """
   def unsubscribe(symbol) do
@@ -134,13 +157,16 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
     Logger.debug("Subscribe request: #{stream_type} for #{symbol}")
 
     # Generate the Phoenix.PubSub topic for this stream
-    topic = build_topic(stream_type, symbol)
+    topic = build_topic(stream_type, symbol, params)
 
     # Build Binance stream name based on type and symbol
     stream_name = build_binance_stream_name(stream_type, symbol, params)
 
-    # Track the subscription
-    subscription_key = {stream_type, symbol}
+    # Track the subscription - include params for klines to differentiate intervals
+    subscription_key = case stream_type do
+      :klines -> {stream_type, symbol, Map.get(params, :interval, "1m")}
+      _ -> {stream_type, symbol}
+    end
 
     updated_subscriptions =
       case Map.get(state.subscriptions, subscription_key) do
@@ -190,7 +216,14 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
     # Find all subscriptions for this symbol and handle unsubscription
     {streams_to_unsubscribe, updated_subscriptions} =
       state.subscriptions
-      |> Enum.reduce({[], %{}}, fn {{_stream_type, sub_symbol} = key, data}, {streams, acc} ->
+      |> Enum.reduce({[], %{}}, fn {key, data}, {streams, acc} ->
+        # Extract symbol from different key patterns
+        sub_symbol = case key do
+          {_stream_type, symbol_name} -> symbol_name
+          {_stream_type, symbol_name, _interval} -> symbol_name
+          _ -> nil
+        end
+
         if sub_symbol == symbol do
           # Decrement subscriber count
           new_count = data.subscribers - 1
@@ -239,8 +272,14 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
 
   ## Private Functions
 
-  defp build_topic(stream_type, symbol) do
-    "binance:#{stream_type}:#{String.upcase(symbol)}"
+  defp build_topic(stream_type, symbol, params \\ %{}) do
+    case stream_type do
+      :klines ->
+        interval = Map.get(params, :interval, "1m")
+        "binance:#{stream_type}:#{String.upcase(symbol)}:#{interval}"
+      _ ->
+        "binance:#{stream_type}:#{String.upcase(symbol)}"
+    end
   end
 
   defp build_binance_stream_name(stream_type, symbol, params) do
@@ -256,6 +295,10 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
 
       :trades ->
         "#{base_symbol}@trade"
+
+      :klines ->
+        interval = Map.get(params, :interval, "1m")
+        "#{base_symbol}@kline_#{interval}"
     end
   end
 end

@@ -13,7 +13,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
   - **Message Parsing**: Parses incoming JSON messages and extracts market data
   - **Phoenix.PubSub Broadcasting**: Broadcasts parsed data to appropriate topics
   - **Exponential Backoff Reconnection**: Handles connection failures with progressive retry delays
-  - **Stream Subscription Management**: Supports dynamic subscription to ticker, depth, and trade streams
+  - **Stream Subscription Management**: Supports dynamic subscription to ticker, depth, trade, and kline streams
 
   ## WebSocket Connection
 
@@ -93,7 +93,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
   use GenServer
   require Logger
 
-  alias CryptoExchange.Models.{Ticker, OrderBook, Trade}
+  alias CryptoExchange.Models.{Ticker, OrderBook, Trade, Kline}
 
   @name __MODULE__
 
@@ -442,6 +442,10 @@ defmodule CryptoExchange.Binance.PublicStreams do
         symbol = extract_symbol_from_stream(stream, "@trade")
         parse_trade_data(symbol, data)
 
+      String.contains?(stream, "@kline") ->
+        {symbol, interval} = extract_symbol_and_interval_from_stream(stream)
+        parse_kline_data(symbol, interval, data)
+
       true ->
         {:error, "Unknown stream type: #{stream}"}
     end
@@ -463,6 +467,18 @@ defmodule CryptoExchange.Binance.PublicStreams do
       _ ->
         # default depth
         {String.upcase(stream), 5}
+    end
+  end
+
+  defp extract_symbol_and_interval_from_stream(stream) do
+    case String.split(stream, "@kline_") do
+      [symbol_part, interval_part] ->
+        symbol = String.upcase(symbol_part)
+        {symbol, interval_part}
+
+      _ ->
+        # default to 1m interval if parsing fails
+        {String.upcase(stream), "1m"}
     end
   end
 
@@ -514,8 +530,30 @@ defmodule CryptoExchange.Binance.PublicStreams do
     end
   end
 
+  defp parse_kline_data(symbol, interval, data) do
+    case Kline.parse(data) do
+      {:ok, kline} ->
+        parsed = %{
+          type: :klines,
+          symbol: symbol,
+          interval: interval,
+          data: kline
+        }
+
+        {:ok, parsed}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp broadcast_market_data(market_data) do
-    topic = build_topic(market_data.type, market_data.symbol)
+    topic = case market_data.type do
+      :klines -> 
+        build_topic_with_interval(market_data.type, market_data.symbol, market_data.interval)
+      _ -> 
+        build_topic(market_data.type, market_data.symbol)
+    end
 
     Phoenix.PubSub.broadcast(
       CryptoExchange.PubSub,
@@ -526,5 +564,9 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   defp build_topic(stream_type, symbol) do
     "binance:#{stream_type}:#{symbol}"
+  end
+
+  defp build_topic_with_interval(stream_type, symbol, interval) do
+    "binance:#{stream_type}:#{symbol}:#{interval}"
   end
 end

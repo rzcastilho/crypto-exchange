@@ -1,7 +1,7 @@
 defmodule CryptoExchange.Models.IntegrationTest do
   use ExUnit.Case, async: true
 
-  alias CryptoExchange.Models.{Ticker, OrderBook, Trade}
+  alias CryptoExchange.Models.{Ticker, OrderBook, Trade, Kline}
 
   describe "integration with PublicStreams parsing" do
     test "parses real Binance ticker message" do
@@ -170,6 +170,135 @@ defmodule CryptoExchange.Models.IntegrationTest do
       assert depth_parsed.data.bids == [["3999.00", "1.5"]]
       assert trade_parsed.data.price == "4000.50000000"
       assert Trade.trade_side(trade_parsed.data) == :buy
+    end
+
+    test "parses real Binance kline message" do
+      # Real Binance kline stream message format
+      stream_data = %{
+        "stream" => "btcusdt@kline_1m",
+        "data" => %{
+          "e" => "kline",
+          "E" => 123456789,
+          "s" => "BTCUSDT",
+          "k" => %{
+            "t" => 123400000,
+            "T" => 123459999,
+            "s" => "BTCUSDT",
+            "i" => "1m",
+            "f" => 100,
+            "L" => 200,
+            "o" => "48000.00000000",
+            "c" => "48200.50000000",
+            "h" => "48300.00000000",
+            "l" => "47980.00000000",
+            "v" => "1000.50000000",
+            "n" => 150,
+            "x" => false,
+            "q" => "48100000.00000000",
+            "V" => "500.25000000",
+            "Q" => "24050000.00000000"
+          }
+        }
+      }
+
+      {:ok, kline} = Kline.parse(stream_data["data"])
+
+      assert kline.symbol == "BTCUSDT"
+      assert kline.interval == "1m"
+      assert kline.open_price == "48000.00000000"
+      assert kline.close_price == "48200.50000000"
+      assert kline.high_price == "48300.00000000"
+      assert kline.low_price == "47980.00000000"
+      assert kline.is_kline_closed == false
+
+      # Test utility functions
+      assert Kline.is_bullish?(kline) == true
+      {:ok, change} = Kline.price_change(kline)
+      assert change == "200.5"
+    end
+
+    test "demonstrates complete market data integration workflow" do
+      # Simulate data as it would be received from different streams
+      ticker_data = %{
+        "e" => "24hrTicker",
+        "s" => "BTCUSDT",
+        "c" => "48200.00000000",
+        "p" => "200.00000000",
+        "P" => "0.42"
+      }
+
+      depth_data = %{
+        "e" => "depthUpdate",
+        "s" => "BTCUSDT",
+        "b" => [["48199.00", "1.5"]],
+        "a" => [["48201.00", "0.8"]]
+      }
+
+      trade_data = %{
+        "e" => "trade",
+        "s" => "BTCUSDT",
+        "p" => "48200.50000000",
+        "q" => "0.12500000",
+        "m" => false  # Buy order
+      }
+
+      kline_data = %{
+        "e" => "kline",
+        "s" => "BTCUSDT",
+        "k" => %{
+          "i" => "1m",
+          "o" => "48000.00000000",
+          "c" => "48200.50000000",
+          "h" => "48250.00000000",
+          "l" => "47980.00000000",
+          "x" => true  # Closed kline
+        }
+      }
+
+      # Parse all data types
+      {:ok, ticker} = Ticker.parse(ticker_data)
+      {:ok, order_book} = OrderBook.parse(depth_data)
+      {:ok, trade} = Trade.parse(trade_data)
+      {:ok, kline} = Kline.parse(kline_data)
+
+      # Create message format as would be broadcast
+      ticker_parsed = %{
+        type: :ticker,
+        symbol: "BTCUSDT",
+        data: ticker
+      }
+
+      depth_parsed = %{
+        type: :depth,
+        symbol: "BTCUSDT",
+        data: order_book
+      }
+
+      trade_parsed = %{
+        type: :trades,
+        symbol: "BTCUSDT",
+        data: trade
+      }
+
+      kline_parsed = %{
+        type: :klines,
+        symbol: "BTCUSDT",
+        interval: "1m",
+        data: kline
+      }
+
+      # Verify all data is properly structured and cross-consistent
+      assert ticker_parsed.data.last_price == "48200.00000000"
+      assert depth_parsed.data.bids == [["48199.00", "1.5"]]
+      assert trade_parsed.data.price == "48200.50000000"
+      assert kline_parsed.data.close_price == "48200.50000000"
+      assert kline_parsed.data.is_kline_closed == true
+      assert Kline.is_bullish?(kline_parsed.data) == true
+
+      # Test cross-model consistency
+      assert Trade.trade_side(trade_parsed.data) == :buy
+      {:ok, kline_change} = Kline.price_change(kline_parsed.data)
+      assert kline_change == "200.5"
     end
   end
 end
