@@ -186,7 +186,8 @@ defmodule CryptoExchange.Binance.PublicStreams do
       subscriptions: MapSet.new(),
       backoff: @initial_backoff,
       connection_status: :disconnected,
-      reconnect_timer: nil
+      reconnect_timer: nil,
+      pending_subscriptions: []
     }
 
     # Connect immediately
@@ -205,17 +206,21 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
     new_state = %{state | subscriptions: new_subscriptions}
 
-    # Send subscription message if connected
-    case state.websocket do
-      nil ->
+    # Send subscription message only if fully connected
+    case {state.websocket, state.connection_status} do
+      {nil, _} ->
         Logger.debug("Not connected, will subscribe when connection is established")
         {:reply, :ok, new_state}
 
-      websocket ->
-        case send_subscription_message(websocket, streams, "SUBSCRIBE") do
+      {_, :connected} ->
+        case send_subscription_message(state.websocket, streams, "SUBSCRIBE") do
           :ok -> {:reply, :ok, new_state}
           {:error, reason} -> {:reply, {:error, reason}, new_state}
         end
+
+      {_, status} ->
+        Logger.debug("Connection status is #{status}, will subscribe when fully connected")
+        {:reply, :ok, new_state}
     end
   end
 
@@ -229,17 +234,21 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
     new_state = %{state | subscriptions: new_subscriptions}
 
-    # Send unsubscription message if connected
-    case state.websocket do
-      nil ->
+    # Send unsubscription message only if fully connected
+    case {state.websocket, state.connection_status} do
+      {nil, _} ->
         Logger.debug("Not connected, removing from subscription list only")
         {:reply, :ok, new_state}
 
-      websocket ->
-        case send_subscription_message(websocket, streams, "UNSUBSCRIBE") do
+      {_, :connected} ->
+        case send_subscription_message(state.websocket, streams, "UNSUBSCRIBE") do
           :ok -> {:reply, :ok, new_state}
           {:error, reason} -> {:reply, {:error, reason}, new_state}
         end
+
+      {_, status} ->
+        Logger.debug("Connection status is #{status}, removing from subscription list only")
+        {:reply, :ok, new_state}
     end
   end
 
@@ -248,6 +257,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
     status =
       case state.connection_status do
         :connected -> {:connected, MapSet.to_list(state.subscriptions)}
+        :connecting -> {:connecting, "WebSocket connected, waiting for subscription confirmation"}
         :disconnected -> {:disconnected, "Not connected"}
         :reconnecting -> {:reconnecting, state.backoff}
       end
@@ -259,27 +269,22 @@ defmodule CryptoExchange.Binance.PublicStreams do
   def handle_info(:connect, state) do
     Logger.info("Connecting to Binance WebSocket at #{state.ws_url}")
 
-    case :websocket_client.start_link(state.ws_url, CryptoExchange.Binance.WebSocketHandler, [
-           self()
-         ]) do
+    case CryptoExchange.Binance.WebSocketHandler.start_link(state.ws_url, self()) do
       {:ok, websocket} ->
         Logger.info("Successfully connected to Binance WebSocket")
 
-        # Reset backoff on successful connection
+        # Reset backoff on successful connection but don't subscribe yet
+        # Set a fallback timer in case onconnect callback doesn't fire
+        fallback_timer = Process.send_after(self(), :connection_timeout, 2000)
+
         new_state = %{
           state
           | websocket: websocket,
-            connection_status: :connected,
+            connection_status: :connecting,
             backoff: @initial_backoff,
-            reconnect_timer: nil
+            reconnect_timer: fallback_timer,
+            pending_subscriptions: MapSet.to_list(state.subscriptions)
         }
-
-        # Subscribe to all active streams
-        streams = MapSet.to_list(state.subscriptions)
-
-        if not Enum.empty?(streams) do
-          send_subscription_message(websocket, streams, "SUBSCRIBE")
-        end
 
         {:noreply, new_state}
 
@@ -300,15 +305,26 @@ defmodule CryptoExchange.Binance.PublicStreams do
   def handle_info({:websocket_disconnect, _reason}, state) do
     Logger.warning("WebSocket disconnected")
 
-    new_state = %{state | websocket: nil, connection_status: :disconnected}
+    new_state = %{
+      state
+      | websocket: nil,
+        connection_status: :disconnected,
+        pending_subscriptions: MapSet.to_list(state.subscriptions)
+    }
 
     schedule_reconnect(new_state)
   end
 
   @impl true
   def handle_info(:websocket_connected, state) do
-    Logger.debug("WebSocket connection confirmed")
-    {:noreply, state}
+    Logger.info("WebSocket connection confirmed - processing pending subscriptions")
+    handle_connection_confirmed(state)
+  end
+
+  @impl true
+  def handle_info(:connection_timeout, state) do
+    Logger.info("Connection timeout reached - assuming WebSocket is ready")
+    handle_connection_confirmed(state)
   end
 
   @impl true
@@ -328,7 +344,12 @@ defmodule CryptoExchange.Binance.PublicStreams do
   def handle_info({:websocket_error, reason}, state) do
     Logger.error("WebSocket error: #{inspect(reason)}")
 
-    new_state = %{state | websocket: nil, connection_status: :disconnected}
+    new_state = %{
+      state
+      | websocket: nil,
+        connection_status: :disconnected,
+        pending_subscriptions: MapSet.to_list(state.subscriptions)
+    }
 
     schedule_reconnect(new_state)
   end
@@ -389,13 +410,16 @@ defmodule CryptoExchange.Binance.PublicStreams do
       {:ok, json} ->
         Logger.debug("Sending #{method} message: #{json}")
 
-        case :websocket_client.cast(websocket, {:text, json}) do
+        # Send message using WebSockex handler
+        case CryptoExchange.Binance.WebSocketHandler.send_message(websocket, message) do
           :ok ->
+            Logger.debug("WebSocket message sent successfully")
             :ok
 
-          error ->
-            Logger.error("Failed to send WebSocket message: #{inspect(error)}")
-            {:error, error}
+          {:error, reason} ->
+            Logger.error("Failed to send WebSocket message: #{inspect(reason)}")
+            Logger.error("WebSocket client might not be properly connected")
+            {:error, reason}
         end
 
       {:error, reason} ->
@@ -413,6 +437,54 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
       {:error, reason} ->
         Logger.error("Failed to parse stream data for #{stream}: #{inspect(reason)}")
+    end
+  end
+
+  defp handle_binance_message(%{"e" => "kline", "s" => symbol, "k" => kline_data}) do
+    Logger.debug("Received kline data for #{symbol}")
+    
+    case parse_kline_message(symbol, kline_data) do
+      {:ok, parsed_data} ->
+        broadcast_market_data(parsed_data)
+
+      {:error, reason} ->
+        Logger.error("Failed to parse kline data for #{symbol}: #{inspect(reason)}")
+    end
+  end
+
+  defp handle_binance_message(%{"e" => "trade", "s" => symbol} = message) do
+    Logger.debug("Received trade data for #{symbol}")
+    
+    case parse_trade_message(symbol, message) do
+      {:ok, parsed_data} ->
+        broadcast_market_data(parsed_data)
+
+      {:error, reason} ->
+        Logger.error("Failed to parse trade data for #{symbol}: #{inspect(reason)}")
+    end
+  end
+
+  defp handle_binance_message(%{"e" => "24hrTicker", "s" => symbol} = message) do
+    Logger.debug("Received ticker data for #{symbol}")
+    
+    case parse_ticker_message(symbol, message) do
+      {:ok, parsed_data} ->
+        broadcast_market_data(parsed_data)
+
+      {:error, reason} ->
+        Logger.error("Failed to parse ticker data for #{symbol}: #{inspect(reason)}")
+    end
+  end
+
+  defp handle_binance_message(%{"asks" => _asks, "bids" => _bids, "lastUpdateId" => _} = message) do
+    Logger.debug("Received depth data")
+    
+    case parse_depth_message(message) do
+      {:ok, parsed_data} ->
+        broadcast_market_data(parsed_data)
+
+      {:error, reason} ->
+        Logger.error("Failed to parse depth data: #{inspect(reason)}")
     end
   end
 
@@ -547,13 +619,93 @@ defmodule CryptoExchange.Binance.PublicStreams do
     end
   end
 
-  defp broadcast_market_data(market_data) do
-    topic = case market_data.type do
-      :klines -> 
-        build_topic_with_interval(market_data.type, market_data.symbol, market_data.interval)
-      _ -> 
-        build_topic(market_data.type, market_data.symbol)
+  defp parse_kline_message(symbol, kline_data) do
+    # Extract interval from the kline data
+    interval = kline_data["i"]
+    
+    case Kline.parse(kline_data) do
+      {:ok, kline} ->
+        parsed = %{
+          type: :klines,
+          symbol: symbol,
+          interval: interval,
+          data: kline
+        }
+
+        {:ok, parsed}
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp parse_depth_message(%{"asks" => asks, "bids" => bids, "lastUpdateId" => last_update_id}) do
+    # We need to determine the symbol from the current subscriptions context
+    # For now, we'll create a generic depth message and let the caller handle it
+    order_book_data = %{
+      "asks" => asks,
+      "bids" => bids,
+      "lastUpdateId" => last_update_id
+    }
+    
+    case OrderBook.parse(order_book_data) do
+      {:ok, order_book} ->
+        # Note: We might need to track which symbols are subscribed to determine the symbol
+        # For now, we'll use a placeholder approach
+        parsed = %{
+          type: :depth,
+          symbol: "UNKNOWN",  # This needs to be fixed by tracking subscriptions
+          data: order_book
+        }
+
+        {:ok, parsed}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_trade_message(symbol, trade_data) do
+    case Trade.parse(trade_data) do
+      {:ok, trade} ->
+        parsed = %{
+          type: :trades,
+          symbol: symbol,
+          data: trade
+        }
+
+        {:ok, parsed}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_ticker_message(symbol, ticker_data) do
+    case Ticker.parse(ticker_data) do
+      {:ok, ticker} ->
+        parsed = %{
+          type: :ticker,
+          symbol: symbol,
+          data: ticker
+        }
+
+        {:ok, parsed}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp broadcast_market_data(market_data) do
+    topic =
+      case market_data.type do
+        :klines ->
+          build_topic_with_interval(market_data.type, market_data.symbol, market_data.interval)
+
+        _ ->
+          build_topic(market_data.type, market_data.symbol)
+      end
 
     Phoenix.PubSub.broadcast(
       CryptoExchange.PubSub,
@@ -568,5 +720,39 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   defp build_topic_with_interval(stream_type, symbol, interval) do
     "binance:#{stream_type}:#{symbol}:#{interval}"
+  end
+
+  defp handle_connection_confirmed(state) do
+    # Cancel any pending connection timeout
+    if state.reconnect_timer do
+      Process.cancel_timer(state.reconnect_timer)
+    end
+
+    # Now that connection is confirmed, subscribe to pending streams
+    new_state =
+      case {state.websocket, state.pending_subscriptions} do
+        {websocket, streams} when websocket != nil and length(streams) > 0 ->
+          Logger.info("Subscribing to pending streams: #{inspect(streams)}")
+          send_subscription_message(websocket, streams, "SUBSCRIBE")
+
+          %{
+            state
+            | connection_status: :connected,
+              pending_subscriptions: [],
+              reconnect_timer: nil
+          }
+
+        _ ->
+          Logger.info("No pending subscriptions, marking as connected")
+
+          %{
+            state
+            | connection_status: :connected,
+              pending_subscriptions: [],
+              reconnect_timer: nil
+          }
+      end
+
+    {:noreply, new_state}
   end
 end

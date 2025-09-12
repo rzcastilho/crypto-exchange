@@ -178,11 +178,11 @@ defmodule CryptoExchange.Models.IntegrationTest do
         "stream" => "btcusdt@kline_1m",
         "data" => %{
           "e" => "kline",
-          "E" => 123456789,
+          "E" => 123_456_789,
           "s" => "BTCUSDT",
           "k" => %{
-            "t" => 123400000,
-            "T" => 123459999,
+            "t" => 123_400_000,
+            "T" => 123_459_999,
             "s" => "BTCUSDT",
             "i" => "1m",
             "f" => 100,
@@ -239,7 +239,8 @@ defmodule CryptoExchange.Models.IntegrationTest do
         "s" => "BTCUSDT",
         "p" => "48200.50000000",
         "q" => "0.12500000",
-        "m" => false  # Buy order
+        # Buy order
+        "m" => false
       }
 
       kline_data = %{
@@ -251,7 +252,8 @@ defmodule CryptoExchange.Models.IntegrationTest do
           "c" => "48200.50000000",
           "h" => "48250.00000000",
           "l" => "47980.00000000",
-          "x" => true  # Closed kline
+          # Closed kline
+          "x" => true
         }
       }
 

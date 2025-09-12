@@ -163,10 +163,11 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
     stream_name = build_binance_stream_name(stream_type, symbol, params)
 
     # Track the subscription - include params for klines to differentiate intervals
-    subscription_key = case stream_type do
-      :klines -> {stream_type, symbol, Map.get(params, :interval, "1m")}
-      _ -> {stream_type, symbol}
-    end
+    subscription_key =
+      case stream_type do
+        :klines -> {stream_type, symbol, Map.get(params, :interval, "1m")}
+        _ -> {stream_type, symbol}
+      end
 
     updated_subscriptions =
       case Map.get(state.subscriptions, subscription_key) do
@@ -218,11 +219,12 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
       state.subscriptions
       |> Enum.reduce({[], %{}}, fn {key, data}, {streams, acc} ->
         # Extract symbol from different key patterns
-        sub_symbol = case key do
-          {_stream_type, symbol_name} -> symbol_name
-          {_stream_type, symbol_name, _interval} -> symbol_name
-          _ -> nil
-        end
+        sub_symbol =
+          case key do
+            {_stream_type, symbol_name} -> symbol_name
+            {_stream_type, symbol_name, _interval} -> symbol_name
+            _ -> nil
+          end
 
         if sub_symbol == symbol do
           # Decrement subscriber count
@@ -272,11 +274,12 @@ defmodule CryptoExchange.PublicStreams.StreamManager do
 
   ## Private Functions
 
-  defp build_topic(stream_type, symbol, params \\ %{}) do
+  defp build_topic(stream_type, symbol, params) do
     case stream_type do
       :klines ->
         interval = Map.get(params, :interval, "1m")
         "binance:#{stream_type}:#{String.upcase(symbol)}:#{interval}"
+
       _ ->
         "binance:#{stream_type}:#{String.upcase(symbol)}"
     end
