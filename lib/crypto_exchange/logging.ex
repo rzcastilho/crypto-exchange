@@ -78,19 +78,19 @@ defmodule CryptoExchange.Logging do
   """
 
   require Logger
-  
+
   @type log_level :: :debug | :info | :warning | :error
   @type log_category :: :trading | :api | :websocket | :authentication | :system | :performance
   @type log_metadata :: %{
-    category: log_category(),
-    component: String.t() | nil,
-    user_id: String.t() | nil,
-    order_id: String.t() | nil,
-    symbol: String.t() | nil,
-    error: term() | nil,
-    duration_ms: non_neg_integer() | nil,
-    request_id: String.t() | nil
-  }
+          category: log_category(),
+          component: String.t() | nil,
+          user_id: String.t() | nil,
+          order_id: String.t() | nil,
+          symbol: String.t() | nil,
+          error: term() | nil,
+          duration_ms: non_neg_integer() | nil,
+          request_id: String.t() | nil
+        }
 
   # Context storage using process dictionary
   @context_key :crypto_exchange_log_context
@@ -107,7 +107,7 @@ defmodule CryptoExchange.Logging do
 
   @doc """
   Logs an info message with structured metadata.
-  """  
+  """
   @spec info(String.t(), map()) :: :ok
   def info(message, metadata \\ %{}) do
     log(:info, message, metadata)
@@ -134,45 +134,48 @@ defmodule CryptoExchange.Logging do
   """
   @spec error_with_exception(String.t(), Exception.t(), list(), map()) :: :ok
   def error_with_exception(message, exception, stacktrace \\ [], metadata \\ %{}) do
-    enhanced_metadata = metadata
-    |> Map.put(:error_type, exception.__struct__)
-    |> Map.put(:error_message, Exception.message(exception))
-    |> Map.put(:stacktrace, Exception.format_stacktrace(stacktrace))
+    enhanced_metadata =
+      metadata
+      |> Map.put(:error_type, exception.__struct__)
+      |> Map.put(:error_message, Exception.message(exception))
+      |> Map.put(:stacktrace, Exception.format_stacktrace(stacktrace))
 
     log(:error, message, enhanced_metadata)
   end
 
   @doc """
   Executes a function while measuring its execution time and logging performance metrics.
-  
+
   Returns the result of the function execution.
   """
-  @spec with_timing(String.t(), map(), (() -> any())) :: any()
+  @spec with_timing(String.t(), map(), (-> any())) :: any()
   def with_timing(message, metadata \\ %{}, fun) do
     start_time = System.monotonic_time(:millisecond)
-    
+
     try do
       result = fun.()
       end_time = System.monotonic_time(:millisecond)
       duration = end_time - start_time
-      
-      timing_metadata = metadata
-      |> Map.put(:duration_ms, duration)
-      |> Map.put(:status, :success)
-      
+
+      timing_metadata =
+        metadata
+        |> Map.put(:duration_ms, duration)
+        |> Map.put(:status, :success)
+
       info("#{message} completed", timing_metadata)
       result
     rescue
       exception ->
         end_time = System.monotonic_time(:millisecond)
         duration = end_time - start_time
-        
-        error_metadata = metadata
-        |> Map.put(:duration_ms, duration)
-        |> Map.put(:status, :error)
-        |> Map.put(:error_type, exception.__struct__)
-        |> Map.put(:error_message, Exception.message(exception))
-        
+
+        error_metadata =
+          metadata
+          |> Map.put(:duration_ms, duration)
+          |> Map.put(:status, :error)
+          |> Map.put(:error_type, exception.__struct__)
+          |> Map.put(:error_message, Exception.message(exception))
+
         error("#{message} failed", error_metadata)
         reraise exception, __STACKTRACE__
     end
@@ -192,13 +195,13 @@ defmodule CryptoExchange.Logging do
   Executes a function with temporary logging context.
   Context is automatically cleaned up after function execution.
   """
-  @spec with_context(map(), (() -> any())) :: any()
+  @spec with_context(map(), (-> any())) :: any()
   def with_context(context, fun) do
     old_context = get_context()
     new_context = Map.merge(old_context, context)
-    
+
     set_context(new_context)
-    
+
     try do
       fun.()
     after
@@ -233,36 +236,37 @@ defmodule CryptoExchange.Logging do
 
   @doc """
   Logs the start of an operation and returns a function to log its completion.
-  
+
   ## Example
   ```elixir
   complete_fn = Logging.start_operation("Processing order", %{
     category: :trading,
     user_id: "alice"
   })
-  
+
   # ... do work ...
-  
+
   complete_fn.(:success, %{order_id: "123"})
   ```
   """
-  @spec start_operation(String.t(), map()) :: ((:success | :error, map()) -> :ok)
+  @spec start_operation(String.t(), map()) :: (:success | :error, map() -> :ok)
   def start_operation(message, metadata \\ %{}) do
     start_time = System.monotonic_time(:millisecond)
     request_id = Map.get(metadata, :request_id, new_request_id())
-    
+
     start_metadata = Map.put(metadata, :request_id, request_id)
     info("#{message} started", start_metadata)
-    
+
     fn status, completion_metadata ->
       end_time = System.monotonic_time(:millisecond)
       duration = end_time - start_time
-      
-      final_metadata = start_metadata
-      |> Map.merge(completion_metadata)
-      |> Map.put(:duration_ms, duration)
-      |> Map.put(:status, status)
-      
+
+      final_metadata =
+        start_metadata
+        |> Map.merge(completion_metadata)
+        |> Map.put(:duration_ms, duration)
+        |> Map.put(:status, status)
+
       case status do
         :success -> info("#{message} completed", final_metadata)
         :error -> error("#{message} failed", final_metadata)
@@ -277,27 +281,33 @@ defmodule CryptoExchange.Logging do
     context = get_context()
     safe_metadata = metadata || %{}
     enhanced_metadata = Map.merge(context, safe_metadata)
-    
+
     # Add system metadata
-    final_metadata = enhanced_metadata
-    |> add_system_metadata()
-    |> add_component_metadata()
-    |> ensure_required_fields()
-    
+    final_metadata =
+      enhanced_metadata
+      |> add_system_metadata()
+      |> add_component_metadata()
+      |> ensure_required_fields()
+
     # Format message with structured metadata for better visibility
     formatted_message = format_structured_message(message, final_metadata)
-    
+
     # Use Elixir Logger with key metadata fields
-    Logger.log(level, formatted_message, Map.take(final_metadata, [:category, :component, :user_id, :request_id]))
+    Logger.log(
+      level,
+      formatted_message,
+      Map.take(final_metadata, [:category, :component, :user_id, :request_id])
+    )
   end
 
   defp format_structured_message(message, metadata) do
     # Create a formatted message that includes key metadata
-    metadata_string = metadata
-    |> Enum.filter(fn {_k, v} -> v != nil end)
-    |> Enum.map(fn {k, v} -> "#{k}=#{format_value(v)}" end)
-    |> Enum.join(" ")
-    
+    metadata_string =
+      metadata
+      |> Enum.filter(fn {_k, v} -> v != nil end)
+      |> Enum.map(fn {k, v} -> "#{k}=#{format_value(v)}" end)
+      |> Enum.join(" ")
+
     case metadata_string do
       "" -> message
       _ -> "#{message} [#{metadata_string}]"
@@ -313,17 +323,21 @@ defmodule CryptoExchange.Logging do
     metadata
     |> Map.put_new(:timestamp, DateTime.utc_now())
     |> Map.put_new(:node, Node.self())
-    |> Map.put_new(:environment, Application.get_env(:crypto_exchange, :environment, :development))
+    |> Map.put_new(
+      :environment,
+      Application.get_env(:crypto_exchange, :environment, :development)
+    )
     |> Map.put_new(:application, :crypto_exchange)
   end
 
   defp add_component_metadata(metadata) do
     # Try to infer component from calling process
-    component = case Process.info(self(), :registered_name) do
-      {_, name} when is_atom(name) -> Atom.to_string(name)
-      _ -> infer_component_from_stacktrace()
-    end
-    
+    component =
+      case Process.info(self(), :registered_name) do
+        {_, name} when is_atom(name) -> Atom.to_string(name)
+        _ -> infer_component_from_stacktrace()
+      end
+
     Map.put_new(metadata, :component, component)
   end
 
@@ -334,8 +348,9 @@ defmodule CryptoExchange.Logging do
         |> Atom.to_string()
         |> String.replace("Elixir.CryptoExchange.", "")
         |> String.downcase()
-      
-      _ -> "unknown"
+
+      _ ->
+        "unknown"
     end
   end
 
@@ -353,14 +368,18 @@ defmodule CryptoExchange.Logging do
   @spec api_request_start(String.t(), String.t(), map()) :: String.t()
   def api_request_start(method, endpoint, metadata \\ %{}) do
     request_id = new_request_id()
-    
-    info("API request initiated", %{
-      category: :api,
-      method: method,
-      endpoint: endpoint,
-      request_id: request_id
-    } |> Map.merge(metadata))
-    
+
+    info(
+      "API request initiated",
+      %{
+        category: :api,
+        method: method,
+        endpoint: endpoint,
+        request_id: request_id
+      }
+      |> Map.merge(metadata)
+    )
+
     request_id
   end
 
@@ -369,12 +388,16 @@ defmodule CryptoExchange.Logging do
   """
   @spec api_request_complete(String.t(), String.t(), integer(), map()) :: :ok
   def api_request_complete(request_id, method, status_code, metadata \\ %{}) do
-    info("API request completed", %{
-      category: :api,
-      request_id: request_id,
-      method: method,
-      status_code: status_code
-    } |> Map.merge(metadata))
+    info(
+      "API request completed",
+      %{
+        category: :api,
+        request_id: request_id,
+        method: method,
+        status_code: status_code
+      }
+      |> Map.merge(metadata)
+    )
   end
 
   @doc """
@@ -399,10 +422,11 @@ defmodule CryptoExchange.Logging do
   @spec auth_event(String.t(), map()) :: :ok
   def auth_event(message, metadata \\ %{}) do
     # Sanitize sensitive information
-    sanitized_metadata = metadata
-    |> Map.drop([:password, :secret_key, :api_secret, :private_key])
-    |> Map.put(:category, :authentication)
-    
+    sanitized_metadata =
+      metadata
+      |> Map.drop([:password, :secret_key, :api_secret, :private_key])
+      |> Map.put(:category, :authentication)
+
     info(message, sanitized_metadata)
   end
 

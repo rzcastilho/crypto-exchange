@@ -164,7 +164,9 @@ defmodule CryptoExchange.Trading.UserConnection do
                   "Failed to parse order response for user #{state.user_id}: #{inspect(reason)}"
                 )
 
-                enhanced_error = ErrorHandler.handle_trading_error(:place_order, {:error, :parse_error}, context)
+                enhanced_error =
+                  ErrorHandler.handle_trading_error(:place_order, {:error, :parse_error}, context)
+
                 {:reply, enhanced_error, state}
             end
 
@@ -198,7 +200,9 @@ defmodule CryptoExchange.Trading.UserConnection do
               "Failed to parse cancelled order response for user #{state.user_id}: #{inspect(reason)}"
             )
 
-            enhanced_error = ErrorHandler.handle_trading_error(:cancel_order, {:error, :parse_error}, context)
+            enhanced_error =
+              ErrorHandler.handle_trading_error(:cancel_order, {:error, :parse_error}, context)
+
             {:reply, enhanced_error, state}
         end
 
@@ -232,7 +236,9 @@ defmodule CryptoExchange.Trading.UserConnection do
               "Failed to parse account data for user #{state.user_id}: #{inspect(reason)}"
             )
 
-            enhanced_error = ErrorHandler.handle_trading_error(:get_balance, {:error, :parse_error}, context)
+            enhanced_error =
+              ErrorHandler.handle_trading_error(:get_balance, {:error, :parse_error}, context)
+
             {:reply, enhanced_error, state}
         end
 
@@ -271,7 +277,10 @@ defmodule CryptoExchange.Trading.UserConnection do
 
           {:error, reason} ->
             Logger.error("Failed to parse orders for user #{state.user_id}: #{inspect(reason)}")
-            enhanced_error = ErrorHandler.handle_trading_error(:get_orders, {:error, :parse_error}, context)
+
+            enhanced_error =
+              ErrorHandler.handle_trading_error(:get_orders, {:error, :parse_error}, context)
+
             {:reply, enhanced_error, state}
         end
 

@@ -258,7 +258,9 @@ defmodule CryptoExchange.Binance.ErrorsTest do
 
     test "authentication_error?/1 identifies auth errors" do
       {:ok, auth_error} = Errors.parse_api_error(%{"code" => -1021, "msg" => "Invalid timestamp"})
-      {:ok, other_error} = Errors.parse_api_error(%{"code" => -2018, "msg" => "Insufficient balance"})
+
+      {:ok, other_error} =
+        Errors.parse_api_error(%{"code" => -2018, "msg" => "Insufficient balance"})
 
       assert Errors.authentication_error?(auth_error) == true
       assert Errors.authentication_error?(other_error) == false
@@ -266,16 +268,23 @@ defmodule CryptoExchange.Binance.ErrorsTest do
 
     test "rate_limit_error?/1 identifies rate limit errors" do
       {:ok, rate_error} = Errors.parse_api_error(%{"code" => -1003, "msg" => "Too many requests"})
-      {:ok, other_error} = Errors.parse_api_error(%{"code" => -1021, "msg" => "Invalid timestamp"})
+
+      {:ok, other_error} =
+        Errors.parse_api_error(%{"code" => -1021, "msg" => "Invalid timestamp"})
 
       assert Errors.rate_limit_error?(rate_error) == true
       assert Errors.rate_limit_error?(other_error) == false
     end
 
     test "insufficient_balance?/1 identifies balance errors" do
-      {:ok, balance_error} = Errors.parse_api_error(%{"code" => -2018, "msg" => "Insufficient balance"})
-      {:ok, margin_error} = Errors.parse_api_error(%{"code" => -2019, "msg" => "Insufficient margin"})
-      {:ok, other_error} = Errors.parse_api_error(%{"code" => -1021, "msg" => "Invalid timestamp"})
+      {:ok, balance_error} =
+        Errors.parse_api_error(%{"code" => -2018, "msg" => "Insufficient balance"})
+
+      {:ok, margin_error} =
+        Errors.parse_api_error(%{"code" => -2019, "msg" => "Insufficient margin"})
+
+      {:ok, other_error} =
+        Errors.parse_api_error(%{"code" => -1021, "msg" => "Invalid timestamp"})
 
       assert Errors.insufficient_balance?(balance_error) == true
       assert Errors.insufficient_balance?(margin_error) == true

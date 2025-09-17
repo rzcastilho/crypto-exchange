@@ -416,7 +416,8 @@ defmodule CryptoExchange.Binance.Errors do
       category: :authentication,
       severity: :error,
       retryable: false,
-      user_message: "IP has been auto-banned for continuing to send requests after receiving 429 codes."
+      user_message:
+        "IP has been auto-banned for continuing to send requests after receiving 429 codes."
     },
     429 => %{
       category: :rate_limiting,
@@ -559,7 +560,11 @@ defmodule CryptoExchange.Binance.Errors do
   @spec calculate_backoff(pos_integer(), t(), keyword()) :: pos_integer()
   def calculate_backoff(attempt, error, opts \\ [])
 
-  def calculate_backoff(_attempt, %__MODULE__{category: :rate_limiting, retry_after: retry_after}, opts)
+  def calculate_backoff(
+        _attempt,
+        %__MODULE__{category: :rate_limiting, retry_after: retry_after},
+        opts
+      )
       when is_integer(retry_after) do
     base_delay = Keyword.get(opts, :base_delay, 1000)
     max_delay = Keyword.get(opts, :max_delay, 32000)

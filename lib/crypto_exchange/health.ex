@@ -39,10 +39,10 @@ defmodule CryptoExchange.Health do
 
   # Check specific component
   {:ok, api_health} = Health.check_component(:binance_api)
-  
+
   # Get detailed health report
   {:ok, report} = Health.detailed_report()
-  
+
   # Start continuous monitoring
   {:ok, _pid} = Health.start_monitor()
   ```
@@ -78,33 +78,40 @@ defmodule CryptoExchange.Health do
 
   use GenServer
   require Logger
-  
+
   alias CryptoExchange.{Logging, Trading, Binance}
   alias CryptoExchange.Binance.WebSocketHandler
 
   @type health_status :: :healthy | :degraded | :unhealthy | :unknown
-  @type component_name :: :binance_api | :websocket_connections | :trading_system | 
-                         :user_connections | :application | :external_dependencies
-  
+  @type component_name ::
+          :binance_api
+          | :websocket_connections
+          | :trading_system
+          | :user_connections
+          | :application
+          | :external_dependencies
+
   @type health_check_result :: %{
-    status: health_status(),
-    timestamp: DateTime.t(),
-    latency_ms: non_neg_integer() | nil,
-    error_message: String.t() | nil,
-    metadata: map()
-  }
+          status: health_status(),
+          timestamp: DateTime.t(),
+          latency_ms: non_neg_integer() | nil,
+          error_message: String.t() | nil,
+          metadata: map()
+        }
 
   @type system_health :: %{
-    status: health_status(),
-    timestamp: DateTime.t(),
-    components: %{component_name() => health_check_result()},
-    metrics: map(),
-    version: String.t()
-  }
+          status: health_status(),
+          timestamp: DateTime.t(),
+          components: %{component_name() => health_check_result()},
+          metrics: map(),
+          version: String.t()
+        }
 
   # Configuration
-  @default_check_interval 30_000  # 30 seconds
-  @component_timeout 5_000        # 5 seconds per component check
+  # 30 seconds
+  @default_check_interval 30_000
+  # 5 seconds per component check
+  @component_timeout 5_000
   @critical_components [:binance_api, :trading_system]
   # Component categorization for health assessment
   # @important_components [:websocket_connections, :user_connections] 
@@ -114,16 +121,16 @@ defmodule CryptoExchange.Health do
 
   @doc """
   Performs a comprehensive system health check.
-  
+
   Returns aggregated health status for all monitored components.
   """
   @spec check_system() :: {:ok, system_health()} | {:error, term()}
   def check_system do
     Logging.info("Starting system health check", %{category: :system})
-    
+
     start_time = System.monotonic_time(:millisecond)
     timestamp = DateTime.utc_now()
-    
+
     # Run health checks for all components concurrently
     component_checks = [
       Task.async(fn -> {:binance_api, check_binance_api()} end),
@@ -133,21 +140,22 @@ defmodule CryptoExchange.Health do
       Task.async(fn -> {:application, check_application()} end),
       Task.async(fn -> {:external_dependencies, check_external_dependencies()} end)
     ]
-    
+
     # Collect results with timeout protection
-    component_results = component_checks
-    |> Task.await_many(@component_timeout)
-    |> Map.new()
-    
+    component_results =
+      component_checks
+      |> Task.await_many(@component_timeout)
+      |> Map.new()
+
     end_time = System.monotonic_time(:millisecond)
     check_duration = end_time - start_time
-    
+
     # Determine overall system status
     overall_status = determine_overall_status(component_results)
-    
+
     # Gather system metrics
     metrics = gather_system_metrics() |> Map.put(:health_check_duration_ms, check_duration)
-    
+
     system_health = %{
       status: overall_status,
       timestamp: timestamp,
@@ -155,14 +163,14 @@ defmodule CryptoExchange.Health do
       metrics: metrics,
       version: Application.spec(:crypto_exchange, :vsn) |> to_string()
     }
-    
+
     Logging.info("System health check completed", %{
       category: :system,
       status: overall_status,
       duration_ms: check_duration,
       total_components: map_size(component_results)
     })
-    
+
     {:ok, system_health}
   end
 
@@ -172,23 +180,37 @@ defmodule CryptoExchange.Health do
   @spec check_component(component_name()) :: {:ok, health_check_result()} | {:error, term()}
   def check_component(component) do
     Logging.debug("Checking component health", %{category: :system, component: component})
-    
-    result = case component do
-      :binance_api -> check_binance_api()
-      :websocket_connections -> check_websocket_connections()
-      :trading_system -> check_trading_system()
-      :user_connections -> check_user_connections()
-      :application -> check_application()
-      :external_dependencies -> check_external_dependencies()
-      _ -> %{status: :unknown, timestamp: DateTime.utc_now(), error_message: "Unknown component"}
-    end
-    
+
+    result =
+      case component do
+        :binance_api ->
+          check_binance_api()
+
+        :websocket_connections ->
+          check_websocket_connections()
+
+        :trading_system ->
+          check_trading_system()
+
+        :user_connections ->
+          check_user_connections()
+
+        :application ->
+          check_application()
+
+        :external_dependencies ->
+          check_external_dependencies()
+
+        _ ->
+          %{status: :unknown, timestamp: DateTime.utc_now(), error_message: "Unknown component"}
+      end
+
     {:ok, result}
   end
 
   @doc """
   Starts the health monitoring GenServer.
-  
+
   Performs periodic health checks and maintains system health state.
   """
   @spec start_monitor(keyword()) :: GenServer.on_start()
@@ -202,7 +224,8 @@ defmodule CryptoExchange.Health do
   @spec get_cached_health() :: {:ok, system_health()} | {:error, term()}
   def get_cached_health do
     case GenServer.whereis(__MODULE__) do
-      nil -> check_system()  # Fall back to immediate check if monitor not running
+      # Fall back to immediate check if monitor not running
+      nil -> check_system()
       pid -> GenServer.call(pid, :get_health)
     end
   end
@@ -213,7 +236,8 @@ defmodule CryptoExchange.Health do
   @spec refresh_health() :: :ok
   def refresh_health do
     case GenServer.whereis(__MODULE__) do
-      nil -> :ok  # Monitor not running
+      # Monitor not running
+      nil -> :ok
       pid -> GenServer.cast(pid, :refresh_health)
     end
   end
@@ -230,7 +254,7 @@ defmodule CryptoExchange.Health do
         alerts: generate_health_alerts(current_health),
         recommendations: generate_health_recommendations(current_health)
       }
-      
+
       {:ok, detailed_data}
     end
   end
@@ -240,13 +264,13 @@ defmodule CryptoExchange.Health do
   @impl true
   def init(opts) do
     check_interval = Keyword.get(opts, :check_interval, @default_check_interval)
-    
+
     # Perform initial health check
     {:ok, initial_health} = check_system()
-    
+
     # Schedule periodic health checks
     Process.send_after(self(), :health_check, check_interval)
-    
+
     state = %{
       current_health: initial_health,
       check_interval: check_interval,
@@ -254,12 +278,12 @@ defmodule CryptoExchange.Health do
       check_count: 1,
       health_history: [initial_health]
     }
-    
+
     Logging.system_event("Health monitor started", %{
       check_interval_ms: check_interval,
       initial_status: initial_health.status
     })
-    
+
     {:ok, state}
   end
 
@@ -276,10 +300,10 @@ defmodule CryptoExchange.Health do
   @impl true
   def handle_info(:health_check, state) do
     new_state = perform_health_check(state)
-    
+
     # Schedule next check
     Process.send_after(self(), :health_check, state.check_interval)
-    
+
     {:noreply, new_state}
   end
 
@@ -289,9 +313,10 @@ defmodule CryptoExchange.Health do
     case check_system() do
       {:ok, new_health} ->
         # Update history (keep last 100 checks)
-        updated_history = [new_health | state.health_history]
-        |> Enum.take(100)
-        
+        updated_history =
+          [new_health | state.health_history]
+          |> Enum.take(100)
+
         # Check for status changes
         if new_health.status != state.current_health.status do
           Logging.warning("System health status changed", %{
@@ -300,34 +325,34 @@ defmodule CryptoExchange.Health do
             new_status: new_health.status
           })
         end
-        
-        %{state |
-          current_health: new_health,
-          last_check: DateTime.utc_now(),
-          check_count: state.check_count + 1,
-          health_history: updated_history
+
+        %{
+          state
+          | current_health: new_health,
+            last_check: DateTime.utc_now(),
+            check_count: state.check_count + 1,
+            health_history: updated_history
         }
-        
     end
   end
 
   defp check_binance_api do
     start_time = System.monotonic_time(:millisecond)
-    
+
     try do
       # Test Binance API connectivity with a lightweight endpoint
       case Binance.PrivateClient.test_connectivity() do
         {:ok, _} ->
           end_time = System.monotonic_time(:millisecond)
           latency = end_time - start_time
-          
+
           %{
             status: :healthy,
             timestamp: DateTime.utc_now(),
             latency_ms: latency,
             metadata: %{endpoint: "api_connectivity_test"}
           }
-          
+
         {:error, reason} ->
           %{
             status: :unhealthy,
@@ -352,22 +377,23 @@ defmodule CryptoExchange.Health do
       # Check WebSocket handler health if available
       case WebSocketHandler.get_connection_health(self()) do
         health when is_map(health) ->
-          status = if health.connected do
-            if health.circuit_breaker_state == :open do
-              :degraded
+          status =
+            if health.connected do
+              if health.circuit_breaker_state == :open do
+                :degraded
+              else
+                :healthy
+              end
             else
-              :healthy
+              :unhealthy
             end
-          else
-            :unhealthy
-          end
-          
+
           %{
             status: status,
             timestamp: DateTime.utc_now(),
             metadata: Map.merge(health, %{component: "websocket_handler"})
           }
-          
+
         {:error, reason} ->
           %{
             status: :unknown,
@@ -388,46 +414,50 @@ defmodule CryptoExchange.Health do
   end
 
   defp check_trading_system do
-    task = Task.async(fn ->
-      try do
-        # Check trading system responsiveness
-        stats = Trading.get_system_stats()
-        
-        status = cond do
-          stats.connected_users == 0 -> :degraded
-          stats.total_connections > 0 -> :healthy
-          true -> :unknown
+    task =
+      Task.async(fn ->
+        try do
+          # Check trading system responsiveness
+          stats = Trading.get_system_stats()
+
+          status =
+            cond do
+              stats.connected_users == 0 -> :degraded
+              stats.total_connections > 0 -> :healthy
+              true -> :unknown
+            end
+
+          %{
+            status: status,
+            timestamp: DateTime.utc_now(),
+            metadata: Map.merge(stats, %{component: "trading_system"})
+          }
+        rescue
+          exception ->
+            %{
+              status: :unhealthy,
+              timestamp: DateTime.utc_now(),
+              error_message: "Trading system check failed: #{Exception.message(exception)}",
+              metadata: %{exception: exception.__struct__}
+            }
+        catch
+          :exit, reason ->
+            %{
+              status: :unhealthy,
+              timestamp: DateTime.utc_now(),
+              error_message: "Trading system unavailable: #{inspect(reason)}",
+              metadata: %{exit_reason: reason, component: "trading_system"}
+            }
         end
-        
-        %{
-          status: status,
-          timestamp: DateTime.utc_now(),
-          metadata: Map.merge(stats, %{component: "trading_system"})
-        }
-      rescue
-        exception ->
-          %{
-            status: :unhealthy,
-            timestamp: DateTime.utc_now(),
-            error_message: "Trading system check failed: #{Exception.message(exception)}",
-            metadata: %{exception: exception.__struct__}
-          }
-      catch
-        :exit, reason ->
-          %{
-            status: :unhealthy,
-            timestamp: DateTime.utc_now(),
-            error_message: "Trading system unavailable: #{inspect(reason)}",
-            metadata: %{exit_reason: reason, component: "trading_system"}
-          }
-      end
-    end)
-    
+      end)
+
     try do
-      Task.await(task, 2000)  # 2 second timeout for this specific check
+      # 2 second timeout for this specific check
+      Task.await(task, 2000)
     catch
       :exit, {:timeout, _} ->
         Task.shutdown(task, :brutal_kill)
+
         %{
           status: :unhealthy,
           timestamp: DateTime.utc_now(),
@@ -438,63 +468,69 @@ defmodule CryptoExchange.Health do
   end
 
   defp check_user_connections do
-    task = Task.async(fn ->
-      try do
-        connected_users = Trading.list_connected_users()
-        user_count = length(connected_users)
-        
-        # Sample a few user connections to verify they're responsive
-        sample_size = min(3, user_count)
-        sample_users = Enum.take_random(connected_users, sample_size)
-        
-        healthy_connections = sample_users
-        |> Enum.count(fn user_id ->
-          case Trading.get_user_info(user_id) do
-            {:ok, _info} -> true
-            {:error, _} -> false
-          end
-        end)
-        
-        status = cond do
-          user_count == 0 -> :degraded  # No users connected (not necessarily unhealthy)
-          healthy_connections == sample_size -> :healthy
-          healthy_connections > 0 -> :degraded
-          true -> :unhealthy
+    task =
+      Task.async(fn ->
+        try do
+          connected_users = Trading.list_connected_users()
+          user_count = length(connected_users)
+
+          # Sample a few user connections to verify they're responsive
+          sample_size = min(3, user_count)
+          sample_users = Enum.take_random(connected_users, sample_size)
+
+          healthy_connections =
+            sample_users
+            |> Enum.count(fn user_id ->
+              case Trading.get_user_info(user_id) do
+                {:ok, _info} -> true
+                {:error, _} -> false
+              end
+            end)
+
+          status =
+            cond do
+              # No users connected (not necessarily unhealthy)
+              user_count == 0 -> :degraded
+              healthy_connections == sample_size -> :healthy
+              healthy_connections > 0 -> :degraded
+              true -> :unhealthy
+            end
+
+          %{
+            status: status,
+            timestamp: DateTime.utc_now(),
+            metadata: %{
+              total_users: user_count,
+              sampled_users: sample_size,
+              healthy_connections: healthy_connections
+            }
+          }
+        rescue
+          exception ->
+            %{
+              status: :unhealthy,
+              timestamp: DateTime.utc_now(),
+              error_message: "User connections check failed: #{Exception.message(exception)}",
+              metadata: %{exception: exception.__struct__}
+            }
+        catch
+          :exit, reason ->
+            %{
+              status: :unhealthy,
+              timestamp: DateTime.utc_now(),
+              error_message: "User connections unavailable: #{inspect(reason)}",
+              metadata: %{exit_reason: reason, total_users: 0}
+            }
         end
-        
-        %{
-          status: status,
-          timestamp: DateTime.utc_now(),
-          metadata: %{
-            total_users: user_count,
-            sampled_users: sample_size,
-            healthy_connections: healthy_connections
-          }
-        }
-      rescue
-        exception ->
-          %{
-            status: :unhealthy,
-            timestamp: DateTime.utc_now(),
-            error_message: "User connections check failed: #{Exception.message(exception)}",
-            metadata: %{exception: exception.__struct__}
-          }
-      catch
-        :exit, reason ->
-          %{
-            status: :unhealthy,
-            timestamp: DateTime.utc_now(),
-            error_message: "User connections unavailable: #{inspect(reason)}",
-            metadata: %{exit_reason: reason, total_users: 0}
-          }
-      end
-    end)
-    
+      end)
+
     try do
-      Task.await(task, 1000)  # 1 second timeout for user connections check
+      # 1 second timeout for user connections check
+      Task.await(task, 1000)
     catch
       :exit, {:timeout, _} ->
         Task.shutdown(task, :brutal_kill)
+
         %{
           status: :unhealthy,
           timestamp: DateTime.utc_now(),
@@ -509,13 +545,16 @@ defmodule CryptoExchange.Health do
       # Check application-level health indicators
       processes = Process.list() |> length()
       memory = :erlang.memory()
-      
-      status = cond do
-        memory[:total] > 1_000_000_000 -> :degraded  # > 1GB memory usage
-        processes > 10_000 -> :degraded              # > 10k processes
-        true -> :healthy
-      end
-      
+
+      status =
+        cond do
+          # > 1GB memory usage
+          memory[:total] > 1_000_000_000 -> :degraded
+          # > 10k processes
+          processes > 10_000 -> :degraded
+          true -> :healthy
+        end
+
       %{
         status: status,
         timestamp: DateTime.utc_now(),
@@ -542,7 +581,7 @@ defmodule CryptoExchange.Health do
     # - Redis/cache connectivity  
     # - External service APIs
     # - Network connectivity
-    
+
     %{
       status: :healthy,
       timestamp: DateTime.utc_now(),
@@ -555,24 +594,33 @@ defmodule CryptoExchange.Health do
 
   defp determine_overall_status(component_results) do
     statuses = Map.values(component_results) |> Enum.map(& &1.status)
-    
+
     cond do
-      Enum.any?(statuses, fn status -> 
-        status == :unhealthy and Map.keys(component_results) 
-        |> Enum.any?(&(&1 in @critical_components))
-      end) -> :unhealthy
-      
-      Enum.any?(statuses, &(&1 == :unhealthy)) -> :degraded
-      Enum.any?(statuses, &(&1 == :degraded)) -> :degraded
-      Enum.all?(statuses, &(&1 == :healthy)) -> :healthy
-      true -> :unknown
+      Enum.any?(statuses, fn status ->
+        status == :unhealthy and
+            Map.keys(component_results)
+            |> Enum.any?(&(&1 in @critical_components))
+      end) ->
+        :unhealthy
+
+      Enum.any?(statuses, &(&1 == :unhealthy)) ->
+        :degraded
+
+      Enum.any?(statuses, &(&1 == :degraded)) ->
+        :degraded
+
+      Enum.all?(statuses, &(&1 == :healthy)) ->
+        :healthy
+
+      true ->
+        :unknown
     end
   end
 
   defp gather_system_metrics do
     memory = :erlang.memory()
     {uptime_ms, _} = :erlang.statistics(:wall_clock)
-    
+
     %{
       uptime_seconds: div(uptime_ms, 1000),
       memory_usage_mb: div(memory[:total], 1_048_576),
@@ -595,61 +643,74 @@ defmodule CryptoExchange.Health do
 
   defp generate_health_alerts(health) do
     alerts = []
-    
+
     # Check for critical component failures
-    critical_alerts = health.components
-    |> Enum.filter(fn {component, result} ->
-      component in @critical_components and result.status == :unhealthy
-    end)
-    |> Enum.map(fn {component, result} ->
-      %{
-        severity: :critical,
-        component: component,
-        message: result.error_message || "Critical component unhealthy",
-        timestamp: result.timestamp
-      }
-    end)
-    
+    critical_alerts =
+      health.components
+      |> Enum.filter(fn {component, result} ->
+        component in @critical_components and result.status == :unhealthy
+      end)
+      |> Enum.map(fn {component, result} ->
+        %{
+          severity: :critical,
+          component: component,
+          message: result.error_message || "Critical component unhealthy",
+          timestamp: result.timestamp
+        }
+      end)
+
     # Check for performance degradation
-    performance_alerts = case health.status do
-      :degraded ->
-        [%{
-          severity: :warning,
-          component: :system,
-          message: "System performance degraded",
-          timestamp: health.timestamp
-        }]
-      _ -> []
-    end
-    
+    performance_alerts =
+      case health.status do
+        :degraded ->
+          [
+            %{
+              severity: :warning,
+              component: :system,
+              message: "System performance degraded",
+              timestamp: health.timestamp
+            }
+          ]
+
+        _ ->
+          []
+      end
+
     alerts ++ critical_alerts ++ performance_alerts
   end
 
   defp generate_health_recommendations(health) do
     recommendations = []
-    
+
     # Check memory usage
     memory_mb = health.metrics[:memory_usage_mb] || 0
-    memory_recommendations = if memory_mb > 512 do
-      ["Consider increasing available memory or optimizing memory usage"]
-    else
-      []
-    end
-    
-    # Check component-specific recommendations
-    component_recommendations = health.components
-    |> Enum.flat_map(fn {component, result} ->
-      case {component, result.status} do
-        {:binance_api, :unhealthy} ->
-          ["Check Binance API credentials and network connectivity"]
-        {:websocket_connections, :degraded} ->
-          ["Review WebSocket connection stability and reconnection logic"]
-        {:user_connections, :unhealthy} ->
-          ["Investigate user connection issues and session management"]
-        _ -> []
+
+    memory_recommendations =
+      if memory_mb > 512 do
+        ["Consider increasing available memory or optimizing memory usage"]
+      else
+        []
       end
-    end)
-    
+
+    # Check component-specific recommendations
+    component_recommendations =
+      health.components
+      |> Enum.flat_map(fn {component, result} ->
+        case {component, result.status} do
+          {:binance_api, :unhealthy} ->
+            ["Check Binance API credentials and network connectivity"]
+
+          {:websocket_connections, :degraded} ->
+            ["Review WebSocket connection stability and reconnection logic"]
+
+          {:user_connections, :unhealthy} ->
+            ["Investigate user connection issues and session management"]
+
+          _ ->
+            []
+        end
+      end)
+
     recommendations ++ memory_recommendations ++ component_recommendations
   end
 end

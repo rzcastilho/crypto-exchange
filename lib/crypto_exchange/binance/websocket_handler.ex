@@ -56,7 +56,7 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
     ]
 
     @type circuit_state :: :closed | :open | :half_open
-    
+
     @type t :: %__MODULE__{
             parent_pid: pid(),
             url: String.t(),
@@ -116,15 +116,21 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
     Logger.info("Starting enhanced WebSockex client for #{url}")
 
     # Extract our custom options
-    {websocket_opts, resilience_opts} = Keyword.split(opts, [
-      :extra_headers, :protocols, :timeout, :debug, :handle_initial_conn_failure
-    ])
+    {websocket_opts, resilience_opts} =
+      Keyword.split(opts, [
+        :extra_headers,
+        :protocols,
+        :timeout,
+        :debug,
+        :handle_initial_conn_failure
+      ])
 
     # WebSockex options with enhanced defaults
-    websockex_opts = [
-      extra_headers: [{"User-Agent", "CryptoExchange/1.0"}],
-      handle_initial_conn_failure: true
-    ] ++ websocket_opts
+    websockex_opts =
+      [
+        extra_headers: [{"User-Agent", "CryptoExchange/1.0"}],
+        handle_initial_conn_failure: true
+      ] ++ websocket_opts
 
     # Initialize enhanced connection state
     state = ConnectionState.new(parent_pid, url, resilience_opts)
@@ -154,14 +160,16 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
       end
 
     Logger.debug("Sending WebSocket message: #{json_message}")
-    
+
     case WebSockex.send_frame(pid, {:text, json_message}) do
-      :ok -> 
+      :ok ->
         :ok
+
       {:error, %WebSockex.ConnError{}} = error ->
         # Buffer the message for retry when reconnected
         WebSockex.cast(pid, {:buffer_message, json_message})
         error
+
       error ->
         error
     end
@@ -178,7 +186,7 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
   """
   def get_connection_health(pid) do
     WebSockex.cast(pid, {:get_health, self()})
-    
+
     receive do
       {:health_response, health} -> health
     after
@@ -191,17 +199,18 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
   @impl WebSockex
   def handle_connect(_conn, %ConnectionState{} = state) do
     Logger.info("Enhanced WebSocket connection established successfully")
-    
+
     now = DateTime.utc_now()
-    
+
     # Reset circuit breaker on successful connection
-    new_state = %{state | 
-      retry_count: 0,
-      last_error: nil,
-      circuit_breaker_state: :closed,
-      circuit_breaker_opened_at: nil,
-      connection_start_time: now,
-      last_pong_sent: nil
+    new_state = %{
+      state
+      | retry_count: 0,
+        last_error: nil,
+        circuit_breaker_state: :closed,
+        circuit_breaker_opened_at: nil,
+        connection_start_time: now,
+        last_pong_sent: nil
     }
 
     # Notify parent process that connection is ready
@@ -232,10 +241,10 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
   @impl WebSockex
   def handle_frame({:ping, data}, %ConnectionState{} = state) do
     Logger.debug("Received ping frame from Binance server, responding with pong")
-    
+
     # Update state to track when we last responded to a ping
     new_state = %{state | last_pong_sent: DateTime.utc_now()}
-    
+
     # Respond with pong containing the same payload
     {:reply, {:pong, data}, new_state}
   end
@@ -249,30 +258,32 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
   @impl WebSockex
   def handle_cast({:buffer_message, message}, %ConnectionState{} = state) do
     Logger.debug("Buffering message for later delivery: #{message}")
-    
+
     # Add to buffer, respecting size limit
     new_buffer = add_to_buffer(state.message_buffer, message, state.config.message_buffer_size)
     new_state = %{state | message_buffer: new_buffer}
-    
+
     {:noreply, new_state}
   end
 
   @impl WebSockex
   def handle_cast({:get_health, requester_pid}, %ConnectionState{} = state) do
     now = DateTime.utc_now()
-    
-    connection_duration = if state.connection_start_time do
-      DateTime.diff(now, state.connection_start_time, :millisecond)
-    else
-      0
-    end
+
+    connection_duration =
+      if state.connection_start_time do
+        DateTime.diff(now, state.connection_start_time, :millisecond)
+      else
+        0
+      end
 
     # Calculate time since last pong response (health indicator)
-    last_pong_age = if state.last_pong_sent do
-      DateTime.diff(now, state.last_pong_sent, :millisecond)
-    else
-      nil
-    end
+    last_pong_age =
+      if state.last_pong_sent do
+        DateTime.diff(now, state.last_pong_sent, :millisecond)
+      else
+        nil
+      end
 
     health = %{
       connected: is_connected?(state),
@@ -294,37 +305,36 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
     {:reply, frame, state}
   end
 
-
   @impl WebSockex
   def handle_disconnect(%{reason: reason}, %ConnectionState{} = state) do
     Logger.warning("Enhanced WebSocket disconnected: #{inspect(reason)}")
 
     # Update retry count and last error
-    new_state = %{state | 
-      retry_count: state.retry_count + 1,
-      last_error: reason
-    }
+    new_state = %{state | retry_count: state.retry_count + 1, last_error: reason}
 
     # Check circuit breaker
     case should_reconnect?(new_state) do
       {:reconnect, delay} ->
-        Logger.info("Scheduling reconnect in #{delay}ms (attempt #{new_state.retry_count}/#{new_state.config.max_retries})")
-        
+        Logger.info(
+          "Scheduling reconnect in #{delay}ms (attempt #{new_state.retry_count}/#{new_state.config.max_retries})"
+        )
+
         # Notify parent of disconnection
         send(new_state.parent_pid, {:websocket_disconnect, reason})
-        
+
         # Use WebSockex's built-in reconnect with delay
         {:reconnect, delay, new_state}
 
       :circuit_open ->
         Logger.warning("Circuit breaker opened - pausing reconnection attempts")
-        
-        circuit_state = %{new_state |
-          circuit_breaker_state: :open,
-          circuit_breaker_opened_at: DateTime.utc_now(),
-          total_reconnects: new_state.total_reconnects + 1
+
+        circuit_state = %{
+          new_state
+          | circuit_breaker_state: :open,
+            circuit_breaker_opened_at: DateTime.utc_now(),
+            total_reconnects: new_state.total_reconnects + 1
         }
-        
+
         send(circuit_state.parent_pid, {:websocket_circuit_open, reason})
         {:close, reason, circuit_state}
 
@@ -348,7 +358,6 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
 
   # Private helper functions
 
-
   defp is_connected?(%ConnectionState{connection_start_time: nil}), do: false
   defp is_connected?(%ConnectionState{}), do: true
 
@@ -356,10 +365,10 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
     cond do
       state.retry_count >= state.config.max_retries ->
         :max_retries_exceeded
-        
+
       state.retry_count >= state.config.circuit_breaker_threshold ->
         :circuit_open
-        
+
       true ->
         # Calculate exponential backoff with jitter
         delay = calculate_reconnect_delay(state.retry_count, state.config)
@@ -370,11 +379,11 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
   defp calculate_reconnect_delay(attempt, config) do
     base_delay = config.base_delay
     max_delay = config.max_delay
-    
+
     # Exponential backoff: base_delay * (2 ^ (attempt - 1))
     delay = base_delay * :math.pow(2, attempt - 1)
     delay = min(trunc(delay), max_delay)
-    
+
     # Add jitter (±10%)
     jitter = trunc(delay * 0.1)
     delay + :rand.uniform(jitter * 2) - jitter
@@ -382,7 +391,7 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
 
   defp add_to_buffer(buffer, message, max_size) do
     new_buffer = [message | buffer]
-    
+
     if length(new_buffer) > max_size do
       Enum.take(new_buffer, max_size)
     else
@@ -396,19 +405,20 @@ defmodule CryptoExchange.Binance.WebSocketHandler do
 
   defp replay_buffered_messages(%ConnectionState{message_buffer: messages} = state) do
     Logger.info("Replaying #{length(messages)} buffered messages")
-    
+
     # Send buffered messages in FIFO order
     messages
     |> Enum.reverse()
     |> Enum.each(fn message ->
       case WebSockex.send_frame(self(), {:text, message}) do
-        :ok -> 
+        :ok ->
           Logger.debug("Replayed buffered message successfully")
+
         {:error, reason} ->
           Logger.warning("Failed to replay buffered message: #{inspect(reason)}")
       end
     end)
-    
+
     # Clear buffer after replay attempt
     %{state | message_buffer: []}
   end

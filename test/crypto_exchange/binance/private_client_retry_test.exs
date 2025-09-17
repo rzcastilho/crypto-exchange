@@ -87,10 +87,12 @@ defmodule CryptoExchange.Binance.PrivateClientRetryTest do
       # Test backoff calculation for rate limiting
       backoff = Errors.calculate_backoff(1, rate_limit_error, base_delay: 100, jitter: false)
       # The actual implementation should use rate limiting logic
-      assert backoff >= 100  # Should be at least the provided base_delay
+      # Should be at least the provided base_delay
+      assert backoff >= 100
 
       backoff2 = Errors.calculate_backoff(2, rate_limit_error, base_delay: 100, jitter: false)
-      assert backoff2 >= backoff  # Should increase with attempt number
+      # Should increase with attempt number
+      assert backoff2 >= backoff
     end
 
     test "does not retry authentication errors", %{client: _client} do
@@ -184,13 +186,16 @@ defmodule CryptoExchange.Binance.PrivateClientRetryTest do
       # Should increase exponentially
       assert backoff2 >= backoff1
       assert backoff3 >= backoff2
-      assert backoff1 >= 1000  # Should be at least base delay
+      # Should be at least base delay
+      assert backoff1 >= 1000
     end
 
     test "respects maximum delay" do
       {:ok, rate_error} = Errors.parse_api_error(%{"code" => -1003, "msg" => "Rate limit"})
 
-      backoff = Errors.calculate_backoff(10, rate_error, base_delay: 1000, max_delay: 5000, jitter: false)
+      backoff =
+        Errors.calculate_backoff(10, rate_error, base_delay: 1000, max_delay: 5000, jitter: false)
+
       assert backoff == 5000
     end
 
@@ -209,9 +214,12 @@ defmodule CryptoExchange.Binance.PrivateClientRetryTest do
 
       # All delays should be reasonable and include some jitter variation
       base_delay = 1000
+
       Enum.each(delays, fn delay ->
-        assert delay >= base_delay  # Should be at least base delay
-        assert delay <= base_delay * 3  # But not too excessive
+        # Should be at least base delay
+        assert delay >= base_delay
+        # But not too excessive
+        assert delay <= base_delay * 3
       end)
     end
 

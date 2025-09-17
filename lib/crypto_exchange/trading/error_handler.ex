@@ -51,11 +51,11 @@ defmodule CryptoExchange.Trading.ErrorHandler do
 
   @type operation :: :place_order | :cancel_order | :get_balance | :get_orders
   @type error_context :: %{
-    user_id: String.t(),
-    order_params: map() | nil,
-    symbol: String.t() | nil,
-    order_id: String.t() | nil
-  }
+          user_id: String.t(),
+          order_params: map() | nil,
+          symbol: String.t() | nil,
+          order_id: String.t() | nil
+        }
   @type recovery_action :: :retry | :adjust_params | :check_balance | :wait | :contact_support
 
   @doc """
@@ -89,7 +89,7 @@ defmodule CryptoExchange.Trading.ErrorHandler do
 
   @doc """
   Provides user-friendly error messages for trading operations.
-  
+
   Translates technical API errors into clear, actionable messages for end users.
   """
   @spec user_friendly_message(term(), operation()) :: String.t()
@@ -201,7 +201,7 @@ defmodule CryptoExchange.Trading.ErrorHandler do
 
   @doc """
   Provides recovery suggestions for trading errors.
-  
+
   Returns specific actions users can take to resolve the error.
   """
   @spec recovery_suggestions(term(), operation(), error_context()) :: [String.t()]
@@ -211,7 +211,7 @@ defmodule CryptoExchange.Trading.ErrorHandler do
       {%Errors{code: code}, :place_order} when code in [-2010, -2018, -2019] ->
         [
           "Check your account balance for the required currency",
-          "Reduce the order quantity to match your available balance",  
+          "Reduce the order quantity to match your available balance",
           "Deposit additional funds to your account",
           "Consider using a different trading pair with sufficient balance"
         ]
@@ -226,7 +226,7 @@ defmodule CryptoExchange.Trading.ErrorHandler do
       # Symbol validation errors
       {%Errors{code: -1121}, _} ->
         suggestions = ["Verify the trading pair symbol is correct (e.g., 'BTCUSDT')"]
-        
+
         if symbol = context[:symbol] || get_symbol_from_params(context[:order_params]) do
           suggestions ++ ["You provided: '#{symbol}' - please double-check this symbol"]
         else
@@ -250,16 +250,18 @@ defmodule CryptoExchange.Trading.ErrorHandler do
 
       # Order not found errors
       {%Errors{code: -2011}, :cancel_order} ->
-        order_context = if order_id = context[:order_id] do
-          ["Check that order ID '#{order_id}' is correct and still active"]
-        else
-          ["Verify the order ID is correct"]
-        end
-        
-        order_context ++ [
-          "The order may have already been filled or cancelled",
-          "Check your order history to see the current status"
-        ]
+        order_context =
+          if order_id = context[:order_id] do
+            ["Check that order ID '#{order_id}' is correct and still active"]
+          else
+            ["Verify the order ID is correct"]
+          end
+
+        order_context ++
+          [
+            "The order may have already been filled or cancelled",
+            "Check your order history to see the current status"
+          ]
 
       # Rate limiting
       {%Errors{code: -1003}, _} ->
@@ -302,7 +304,6 @@ defmodule CryptoExchange.Trading.ErrorHandler do
   def classify_error(error, _operation) do
     case error do
       %Errors{category: category} -> category
-      
       # Raw Binance error maps - classify by error code (string keys)
       %{"code" => -2010} -> :insufficient_funds
       %{"code" => -2018} -> :insufficient_funds
@@ -315,7 +316,6 @@ defmodule CryptoExchange.Trading.ErrorHandler do
       %{"code" => -2014} -> :authentication
       %{"code" => -1022} -> :authentication
       %{"code" => -1100} -> :market_status
-      
       # Raw Binance error maps - classify by error code (atom keys)
       %{code: -2010} -> :insufficient_funds
       %{code: -2018} -> :insufficient_funds
@@ -328,7 +328,6 @@ defmodule CryptoExchange.Trading.ErrorHandler do
       %{code: -2014} -> :authentication
       %{code: -1022} -> :authentication
       %{code: -1100} -> :market_status
-      
       # Standard error tuples
       {:error, :insufficient_balance} -> :trading
       {:error, :invalid_symbol} -> :validation
@@ -358,19 +357,15 @@ defmodule CryptoExchange.Trading.ErrorHandler do
       # Critical errors that prevent trading
       {%Errors{code: code}, _} when code in [-1021, -1022] -> :critical
       {{:error, :user_not_found}, _} -> :critical
-
       # Errors that require user action
       {%Errors{code: code}, _} when code in [-2010, -2018, -2019, -1013, -1121] -> :error
       {{:error, :insufficient_balance}, _} -> :error
       {{:error, :invalid_symbol}, _} -> :error
-
       # Warnings for temporary issues
       {%Errors{code: -1003}, _} -> :warning
       {{:error, :timeout}, _} -> :warning
-
       # Info for recoverable issues  
       {%Errors{code: -2011}, :cancel_order} -> :error
-
       # Default to error for unknown issues
       _ -> :error
     end
@@ -387,7 +382,6 @@ defmodule CryptoExchange.Trading.ErrorHandler do
       {:error, :timeout} -> true
       {:error, :connection_failed} -> true
       {:error, :parse_error} -> true
-
       # Non-retryable errors
       %Errors{category: :authentication} -> false
       %Errors{category: :trading} -> false
@@ -395,7 +389,6 @@ defmodule CryptoExchange.Trading.ErrorHandler do
       {:error, :invalid_symbol} -> false
       {:error, :invalid_params_format} -> false
       {:error, :user_not_found} -> false
-
       # Default to non-retryable for safety
       _ -> false
     end
@@ -429,12 +422,13 @@ defmodule CryptoExchange.Trading.ErrorHandler do
   end
 
   defp log_trading_error(enhanced_error) do
-    level = case enhanced_error.severity do
-      :critical -> :error
-      :error -> :error
-      :warning -> :warning
-      :info -> :info
-    end
+    level =
+      case enhanced_error.severity do
+        :critical -> :error
+        :error -> :error
+        :warning -> :warning
+        :info -> :info
+      end
 
     Logger.log(level, """
     Trading Error Occurred:
@@ -454,10 +448,11 @@ defmodule CryptoExchange.Trading.ErrorHandler do
   defp validate_required_trading_fields(params) do
     required = ["symbol", "side", "type", "quantity"]
     present = Map.keys(params) ++ (params |> Map.keys() |> Enum.map(&to_string/1))
-    
-    missing = Enum.reject(required, fn field ->
-      field in present and get_param_value(params, field) not in [nil, ""]
-    end)
+
+    missing =
+      Enum.reject(required, fn field ->
+        field in present and get_param_value(params, field) not in [nil, ""]
+      end)
 
     if Enum.empty?(missing) do
       :ok
@@ -471,21 +466,24 @@ defmodule CryptoExchange.Trading.ErrorHandler do
     cond do
       not String.match?(symbol, ~r/^[A-Z]{3,}[A-Z]{3,}$/) ->
         {:error, :invalid_symbol_format}
-      
+
       String.length(symbol) < 6 ->
         {:error, :invalid_symbol_length}
-        
+
       true ->
         :ok
     end
   end
+
   defp validate_trading_symbol(_), do: {:error, :invalid_symbol}
 
   defp validate_trading_quantities(params) do
     quantity = get_param_value(params, "quantity") || get_param_value(params, :quantity)
-    
+
     case quantity do
-      nil -> {:error, :missing_quantity}
+      nil ->
+        {:error, :missing_quantity}
+
       qty when is_binary(qty) ->
         case Decimal.parse(qty) do
           {decimal_qty, ""} ->
@@ -494,15 +492,20 @@ defmodule CryptoExchange.Trading.ErrorHandler do
             else
               {:error, :invalid_quantity_value}
             end
-          _ -> {:error, :invalid_quantity_format}
+
+          _ ->
+            {:error, :invalid_quantity_format}
         end
-      _ -> {:error, :invalid_quantity_type}
+
+      _ ->
+        {:error, :invalid_quantity_type}
     end
   end
 
   defp get_param_value(params, key) when is_binary(key) do
     params[key] || params[String.to_atom(key)]
   end
+
   defp get_param_value(params, key) when is_atom(key) do
     params[key] || params[Atom.to_string(key)]
   end

@@ -6,32 +6,39 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
 
   describe "handle_trading_error/3" do
     test "handles insufficient balance errors with enhanced context" do
-      {:ok, binance_error} = Errors.parse_api_error(%{"code" => -2018, "msg" => "Insufficient balance"})
-      
+      {:ok, binance_error} =
+        Errors.parse_api_error(%{"code" => -2018, "msg" => "Insufficient balance"})
+
       context = %{
         user_id: "test_user",
         order_params: %{"symbol" => "BTCUSDT", "side" => "BUY", "quantity" => "1.0"}
       }
 
-      {:error, enhanced_error} = ErrorHandler.handle_trading_error(:place_order, binance_error, context)
+      {:error, enhanced_error} =
+        ErrorHandler.handle_trading_error(:place_order, binance_error, context)
 
       assert enhanced_error.category == :trading
       assert enhanced_error.operation == :place_order
       assert enhanced_error.severity == :error
       assert enhanced_error.retryable == false
       assert String.contains?(enhanced_error.user_message, "Insufficient balance")
-      assert Enum.any?(enhanced_error.recovery_suggestions, &String.contains?(&1, "Check your account balance"))
+
+      assert Enum.any?(
+               enhanced_error.recovery_suggestions,
+               &String.contains?(&1, "Check your account balance")
+             )
     end
 
     test "handles invalid symbol errors with symbol-specific suggestions" do
       {:ok, binance_error} = Errors.parse_api_error(%{"code" => -1121, "msg" => "Invalid symbol"})
-      
+
       context = %{
         user_id: "test_user",
         order_params: %{"symbol" => "INVALIDPAIR", "side" => "BUY"}
       }
 
-      {:error, enhanced_error} = ErrorHandler.handle_trading_error(:place_order, binance_error, context)
+      {:error, enhanced_error} =
+        ErrorHandler.handle_trading_error(:place_order, binance_error, context)
 
       assert enhanced_error.category == :validation
       assert enhanced_error.operation == :place_order
@@ -42,15 +49,17 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
     end
 
     test "handles order not found errors for cancel operations" do
-      {:ok, binance_error} = Errors.parse_api_error(%{"code" => -2011, "msg" => "Order not found"})
-      
+      {:ok, binance_error} =
+        Errors.parse_api_error(%{"code" => -2011, "msg" => "Order not found"})
+
       context = %{
         user_id: "test_user",
         symbol: "BTCUSDT",
         order_id: "12345"
       }
 
-      {:error, enhanced_error} = ErrorHandler.handle_trading_error(:cancel_order, binance_error, context)
+      {:error, enhanced_error} =
+        ErrorHandler.handle_trading_error(:cancel_order, binance_error, context)
 
       assert enhanced_error.category == :trading
       assert enhanced_error.operation == :cancel_order
@@ -61,11 +70,13 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
     end
 
     test "handles rate limiting errors with retry guidance" do
-      {:ok, binance_error} = Errors.parse_api_error(%{"code" => -1003, "msg" => "Too many requests"})
-      
+      {:ok, binance_error} =
+        Errors.parse_api_error(%{"code" => -1003, "msg" => "Too many requests"})
+
       context = %{user_id: "test_user"}
 
-      {:error, enhanced_error} = ErrorHandler.handle_trading_error(:place_order, binance_error, context)
+      {:error, enhanced_error} =
+        ErrorHandler.handle_trading_error(:place_order, binance_error, context)
 
       assert enhanced_error.category == :rate_limiting
       assert enhanced_error.severity == :warning
@@ -77,7 +88,8 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
     test "handles network timeout errors" do
       context = %{user_id: "test_user"}
 
-      {:error, enhanced_error} = ErrorHandler.handle_trading_error(:get_balance, {:error, :timeout}, context)
+      {:error, enhanced_error} =
+        ErrorHandler.handle_trading_error(:get_balance, {:error, :timeout}, context)
 
       assert enhanced_error.category == :network
       assert enhanced_error.severity == :warning
@@ -100,6 +112,7 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
 
       Enum.each(test_cases, fn {error, operation, expected_fragment} ->
         message = ErrorHandler.user_friendly_message(error, operation)
+
         assert String.contains?(message, expected_fragment),
                "Expected '#{expected_fragment}' in message: #{message}"
       end)
@@ -126,6 +139,7 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
 
     test "provides symbol-specific suggestions for invalid symbol errors" do
       {:ok, error} = Errors.parse_api_error(%{"code" => -1121, "msg" => "Invalid symbol"})
+
       context = %{
         user_id: "test_user",
         order_params: %{"symbol" => "WRONGPAIR"}
@@ -139,6 +153,7 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
 
     test "provides order-specific suggestions for cancel errors" do
       {:ok, error} = Errors.parse_api_error(%{"code" => -2011, "msg" => "Order not found"})
+
       context = %{
         user_id: "test_user",
         order_id: "67890"
@@ -174,7 +189,8 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
 
       Enum.each(test_cases, fn {error, operation, expected_category} ->
         category = ErrorHandler.classify_error(error, operation)
-        assert category == expected_category, 
+
+        assert category == expected_category,
                "Expected #{expected_category}, got #{category} for #{inspect(error)}"
       end)
     end
@@ -183,17 +199,22 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
   describe "determine_severity/2" do
     test "assigns appropriate severity levels" do
       test_cases = [
-        {%Errors{code: -1021}, :place_order, :critical},  # Auth error
+        # Auth error
+        {%Errors{code: -1021}, :place_order, :critical},
         {{:error, :user_not_found}, :place_order, :critical},
-        {%Errors{code: -2018}, :place_order, :error},     # Insufficient balance
+        # Insufficient balance
+        {%Errors{code: -2018}, :place_order, :error},
         {{:error, :invalid_symbol}, :place_order, :error},
-        {%Errors{code: -1003}, :place_order, :warning},   # Rate limiting
+        # Rate limiting
+        {%Errors{code: -1003}, :place_order, :warning},
         {{:error, :timeout}, :get_balance, :warning},
-        {%Errors{code: -2011}, :cancel_order, :error}     # Order not found
+        # Order not found
+        {%Errors{code: -2011}, :cancel_order, :error}
       ]
 
       Enum.each(test_cases, fn {error, operation, expected_severity} ->
         severity = ErrorHandler.determine_severity(error, operation)
+
         assert severity == expected_severity,
                "Expected #{expected_severity}, got #{severity} for #{inspect(error)}"
       end)
@@ -249,7 +270,7 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
       }
 
       {:error, enhanced_error} = ErrorHandler.validate_trading_params(invalid_params, "test_user")
-      
+
       assert enhanced_error.category == :validation
       assert enhanced_error.operation == :place_order
       assert String.contains?(enhanced_error.user_message, "Missing required")
@@ -257,31 +278,37 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
 
     test "rejects invalid symbol format" do
       invalid_params = %{
-        "symbol" => "BTC",  # Too short
+        # Too short
+        "symbol" => "BTC",
         "side" => "BUY",
         "type" => "LIMIT",
         "quantity" => "0.001"
       }
 
       {:error, enhanced_error} = ErrorHandler.validate_trading_params(invalid_params, "test_user")
-      
+
       assert enhanced_error.category == :validation
       assert String.contains?(enhanced_error.user_message, "Invalid")
     end
 
     test "rejects invalid quantity values" do
       test_cases = [
-        %{"symbol" => "BTCUSDT", "side" => "BUY", "type" => "LIMIT", "quantity" => "0"},     # Zero
-        %{"symbol" => "BTCUSDT", "side" => "BUY", "type" => "LIMIT", "quantity" => "-1"},   # Negative
-        %{"symbol" => "BTCUSDT", "side" => "BUY", "type" => "LIMIT", "quantity" => "abc"},  # Non-numeric
-        %{"symbol" => "BTCUSDT", "side" => "BUY", "type" => "LIMIT", "quantity" => nil}     # Nil
+        # Zero
+        %{"symbol" => "BTCUSDT", "side" => "BUY", "type" => "LIMIT", "quantity" => "0"},
+        # Negative
+        %{"symbol" => "BTCUSDT", "side" => "BUY", "type" => "LIMIT", "quantity" => "-1"},
+        # Non-numeric
+        %{"symbol" => "BTCUSDT", "side" => "BUY", "type" => "LIMIT", "quantity" => "abc"},
+        # Nil
+        %{"symbol" => "BTCUSDT", "side" => "BUY", "type" => "LIMIT", "quantity" => nil}
       ]
 
       Enum.each(test_cases, fn params ->
         {:error, enhanced_error} = ErrorHandler.validate_trading_params(params, "test_user")
         assert enhanced_error.category == :validation
-        assert String.contains?(enhanced_error.user_message, "Invalid") or 
-               String.contains?(enhanced_error.user_message, "Missing")
+
+        assert String.contains?(enhanced_error.user_message, "Invalid") or
+                 String.contains?(enhanced_error.user_message, "Missing")
       end)
     end
 
@@ -304,7 +331,8 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
         "symbol" => "BTCUSDT",
         "side" => "BUY",
         "type" => "LIMIT",
-        "quantity" => "10.0",  # Large quantity to trigger insufficient balance
+        # Large quantity to trigger insufficient balance
+        "quantity" => "10.0",
         "price" => "50000.0"
       }
 
@@ -314,12 +342,14 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
       }
 
       # Simulate Binance insufficient balance error
-      {:ok, binance_error} = Errors.parse_api_error(%{
-        "code" => -2018, 
-        "msg" => "Account has insufficient balance for requested action."
-      })
+      {:ok, binance_error} =
+        Errors.parse_api_error(%{
+          "code" => -2018,
+          "msg" => "Account has insufficient balance for requested action."
+        })
 
-      {:error, enhanced_error} = ErrorHandler.handle_trading_error(:place_order, binance_error, context)
+      {:error, enhanced_error} =
+        ErrorHandler.handle_trading_error(:place_order, binance_error, context)
 
       # Verify the enhanced error provides comprehensive information
       assert enhanced_error.operation == :place_order
@@ -338,7 +368,9 @@ defmodule CryptoExchange.Trading.ErrorHandlerTest do
       # Verify recovery suggestions are helpful
       suggestions_text = Enum.join(enhanced_error.recovery_suggestions, " ")
       assert String.contains?(suggestions_text, "balance")
-      assert String.contains?(suggestions_text, "Reduce") or String.contains?(suggestions_text, "Deposit")
+
+      assert String.contains?(suggestions_text, "Reduce") or
+               String.contains?(suggestions_text, "Deposit")
     end
   end
 end

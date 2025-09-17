@@ -63,7 +63,7 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
 
     test "passes through binary messages unchanged" do
       message = "{\"type\":\"subscribe\"}"
-      
+
       # Binary messages should be passed through as-is
       assert is_binary(message)
     end
@@ -73,10 +73,10 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
     test "calculates connection health metrics correctly" do
       parent_pid = self()
       url = "wss://example.com/ws"
-      
+
       # Create a state with some test data
       base_time = DateTime.utc_now()
-      
+
       state = %ConnectionState{
         parent_pid: parent_pid,
         url: url,
@@ -92,22 +92,27 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
 
       # Test the health calculation logic
       now = DateTime.utc_now()
-      connection_duration = if state.connection_start_time do
-        DateTime.diff(now, state.connection_start_time, :millisecond)
-      else
-        0
-      end
+
+      connection_duration =
+        if state.connection_start_time do
+          DateTime.diff(now, state.connection_start_time, :millisecond)
+        else
+          0
+        end
 
       # Calculate time since last pong response (health indicator)
-      last_pong_age = if state.last_pong_sent do
-        DateTime.diff(now, state.last_pong_sent, :millisecond)
-      else
-        nil
-      end
+      last_pong_age =
+        if state.last_pong_sent do
+          DateTime.diff(now, state.last_pong_sent, :millisecond)
+        else
+          nil
+        end
 
       assert connection_duration > 0
-      assert last_pong_age != nil  # Should have a pong age since we set last_pong_sent
-      assert last_pong_age >= 0    # Age should be non-negative
+      # Should have a pong age since we set last_pong_sent
+      assert last_pong_age != nil
+      # Age should be non-negative
+      assert last_pong_age >= 0
       assert length(state.message_buffer) == 2
     end
 
@@ -141,11 +146,16 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
 
       # Should follow exponential pattern: base * 2^(attempt-1)
       # But with jitter, so we test ranges
-      assert delay1 >= 900 && delay1 <= 1100    # ~1000ms ±10%
-      assert delay2 >= 1800 && delay2 <= 2200   # ~2000ms ±10%
-      assert delay3 >= 3600 && delay3 <= 4400   # ~4000ms ±10%
-      assert delay4 >= 7200 && delay4 <= 8800   # ~8000ms ±10%
-      assert delay5 == 16000                    # Capped at max_delay
+      # ~1000ms ±10%
+      assert delay1 >= 900 && delay1 <= 1100
+      # ~2000ms ±10%
+      assert delay2 >= 1800 && delay2 <= 2200
+      # ~4000ms ±10%
+      assert delay3 >= 3600 && delay3 <= 4400
+      # ~8000ms ±10%
+      assert delay4 >= 7200 && delay4 <= 8800
+      # Capped at max_delay
+      assert delay5 == 16000
     end
 
     test "respects maximum delay" do
@@ -168,10 +178,16 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
         parent_pid: parent_pid,
         url: url,
         retry_count: 2,
-        config: %{max_retries: 5, circuit_breaker_threshold: 4, base_delay: 1000, max_delay: 16000}
+        config: %{
+          max_retries: 5,
+          circuit_breaker_threshold: 4,
+          base_delay: 1000,
+          max_delay: 16000
+        }
       }
 
-      assert should_reconnect?(state_normal) == {:reconnect, calculate_reconnect_delay(2, state_normal.config)}
+      assert should_reconnect?(state_normal) ==
+               {:reconnect, calculate_reconnect_delay(2, state_normal.config)}
 
       # State at circuit breaker threshold
       state_circuit = %ConnectionState{
@@ -263,7 +279,7 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
     test "tracks server ping response timestamps" do
       parent_pid = self()
       url = "wss://example.com/ws"
-      
+
       pong_time = DateTime.utc_now()
 
       state = %ConnectionState{
@@ -285,7 +301,7 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
 
       # State with no pong data
       state = ConnectionState.new(parent_pid, url)
-      
+
       assert state.last_pong_sent == nil
 
       # Should handle nil values gracefully in pong age calculation
@@ -315,7 +331,7 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
     test "resets state on successful connection" do
       parent_pid = self()
       url = "wss://example.com/ws"
-      
+
       # State with previous errors
       error_state = %ConnectionState{
         parent_pid: parent_pid,
@@ -329,12 +345,14 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
 
       # Simulate successful reconnection
       now = DateTime.utc_now()
-      recovered_state = %{error_state |
-        retry_count: 0,
-        last_error: nil,
-        circuit_breaker_state: :closed,
-        circuit_breaker_opened_at: nil,
-        connection_start_time: now
+
+      recovered_state = %{
+        error_state
+        | retry_count: 0,
+          last_error: nil,
+          circuit_breaker_state: :closed,
+          circuit_breaker_opened_at: nil,
+          connection_start_time: now
       }
 
       assert recovered_state.retry_count == 0
@@ -351,44 +369,41 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
       url = "wss://example.com/ws"
 
       # Start with fresh state
-      initial_state = ConnectionState.new(parent_pid, url, [
-        max_retries: 3,
-        circuit_breaker_threshold: 2
-      ])
+      initial_state =
+        ConnectionState.new(parent_pid, url,
+          max_retries: 3,
+          circuit_breaker_threshold: 2
+        )
 
       # First failure
-      state_after_failure_1 = %{initial_state |
-        retry_count: 1,
-        last_error: :connection_refused
-      }
+      state_after_failure_1 = %{initial_state | retry_count: 1, last_error: :connection_refused}
 
       result_1 = should_reconnect?(state_after_failure_1)
       assert match?({:reconnect, _delay}, result_1)
 
       # Second failure - should open circuit
-      state_after_failure_2 = %{state_after_failure_1 |
-        retry_count: 2,
-        last_error: :timeout
-      }
+      state_after_failure_2 = %{state_after_failure_1 | retry_count: 2, last_error: :timeout}
 
       result_2 = should_reconnect?(state_after_failure_2)
       assert result_2 == :circuit_open
 
       # Circuit breaker should be open now
-      circuit_open_state = %{state_after_failure_2 |
-        circuit_breaker_state: :open,
-        circuit_breaker_opened_at: DateTime.utc_now()
+      circuit_open_state = %{
+        state_after_failure_2
+        | circuit_breaker_state: :open,
+          circuit_breaker_opened_at: DateTime.utc_now()
       }
 
       assert circuit_open_state.circuit_breaker_state == :open
 
       # Recovery after circuit breaker timeout would reset the state
-      recovered_state = %{circuit_open_state |
-        retry_count: 0,
-        last_error: nil,
-        circuit_breaker_state: :closed,
-        circuit_breaker_opened_at: nil,
-        connection_start_time: DateTime.utc_now()
+      recovered_state = %{
+        circuit_open_state
+        | retry_count: 0,
+          last_error: nil,
+          circuit_breaker_state: :closed,
+          circuit_breaker_opened_at: nil,
+          connection_start_time: DateTime.utc_now()
       }
 
       assert recovered_state.circuit_breaker_state == :closed
@@ -404,10 +419,10 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
     cond do
       state.retry_count >= state.config.max_retries ->
         :max_retries_exceeded
-        
+
       state.retry_count >= state.config.circuit_breaker_threshold ->
         :circuit_open
-        
+
       true ->
         delay = calculate_reconnect_delay(state.retry_count, state.config)
         {:reconnect, delay}
@@ -417,23 +432,26 @@ defmodule CryptoExchange.Binance.WebSocketHandlerTest do
   defp calculate_reconnect_delay(attempt, config) do
     base_delay = config.base_delay
     max_delay = config.max_delay
-    
+
     # Exponential backoff: base_delay * (2 ^ (attempt - 1))
     delay = base_delay * :math.pow(2, attempt - 1)
     delay = min(trunc(delay), max_delay)
-    
+
     # Add jitter (±10%) for testing, we use fixed jitter for predictability
     jitter = trunc(delay * 0.1)
+
     if delay == max_delay do
-      delay  # No jitter for max delay in tests
+      # No jitter for max delay in tests
+      delay
     else
-      delay + jitter  # Add fixed jitter for predictable testing
+      # Add fixed jitter for predictable testing
+      delay + jitter
     end
   end
 
   defp add_to_buffer(buffer, message, max_size) do
     new_buffer = [message | buffer]
-    
+
     if length(new_buffer) > max_size do
       Enum.take(new_buffer, max_size)
     else
