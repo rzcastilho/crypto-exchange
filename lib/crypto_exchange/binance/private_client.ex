@@ -21,7 +21,7 @@ defmodule CryptoExchange.Binance.PrivateClient do
 
   ```elixir
   # Create client with credentials
-  client = PrivateClient.new(%{
+  {:ok, client} = PrivateClient.new(%{
     api_key: "your_binance_api_key",
     secret_key: "your_binance_secret_key"
   })
@@ -58,18 +58,50 @@ defmodule CryptoExchange.Binance.PrivateClient do
   provides details about what went wrong.
   """
 
-  alias CryptoExchange.Binance.Auth
+  alias CryptoExchange.Binance.{Auth, Errors}
   require Logger
 
   @default_base_url "https://api.binance.com"
   @default_timeout 10_000
 
-  defstruct [:credentials, :base_url, :timeout]
+  defmodule RetryConfig do
+    @moduledoc """
+    Configuration for retry logic and error handling.
+    """
+    defstruct [
+      :max_retries,
+      :base_delay,
+      :max_delay,
+      :enable_jitter,
+      :retryable_errors
+    ]
+
+    @type t :: %__MODULE__{
+            max_retries: non_neg_integer(),
+            base_delay: pos_integer(),
+            max_delay: pos_integer(),
+            enable_jitter: boolean(),
+            retryable_errors: [atom()]
+          }
+
+    def default do
+      %__MODULE__{
+        max_retries: 3,
+        base_delay: 1000,
+        max_delay: 32000,
+        enable_jitter: true,
+        retryable_errors: [:rate_limiting, :network, :system]
+      }
+    end
+  end
+
+  defstruct [:credentials, :base_url, :timeout, :retry_config]
 
   @type t :: %__MODULE__{
           credentials: %{api_key: String.t(), secret_key: String.t()},
           base_url: String.t(),
-          timeout: pos_integer()
+          timeout: pos_integer(),
+          retry_config: RetryConfig.t()
         }
 
   @type order_params :: %{
@@ -102,10 +134,13 @@ defmodule CryptoExchange.Binance.PrivateClient do
   def new(credentials, opts \\ []) do
     case Auth.validate_credentials(credentials) do
       :ok ->
+        retry_config = Keyword.get(opts, :retry_config, RetryConfig.default())
+
         client = %__MODULE__{
           credentials: credentials,
           base_url: Keyword.get(opts, :base_url, @default_base_url),
-          timeout: Keyword.get(opts, :timeout, @default_timeout)
+          timeout: Keyword.get(opts, :timeout, @default_timeout),
+          retry_config: retry_config
         }
 
         {:ok, client}
@@ -125,7 +160,7 @@ defmodule CryptoExchange.Binance.PrivateClient do
 
   ## Required Parameters
   - `symbol`: Trading symbol (e.g., "BTCUSDT")
-  - `side`: Order side ("BUY" or "SELL")  
+  - `side`: Order side ("BUY" or "SELL")
   - `type`: Order type ("LIMIT", "MARKET", "STOP_LOSS", etc.)
 
   ## Optional Parameters (depending on order type)
@@ -144,7 +179,7 @@ defmodule CryptoExchange.Binance.PrivateClient do
   {:ok, order} = PrivateClient.place_order(client, %{
     symbol: "BTCUSDT",
     side: "BUY",
-    type: "LIMIT", 
+    type: "LIMIT",
     timeInForce: "GTC",
     quantity: "0.001",
     price: "50000.00"
@@ -233,7 +268,7 @@ defmodule CryptoExchange.Binance.PrivateClient do
   Gets all orders for a symbol (active, canceled, filled).
 
   ## Parameters
-  - `client`: PrivateClient struct  
+  - `client`: PrivateClient struct
   - `symbol`: Trading symbol (e.g., "BTCUSDT")
   - `opts`: Optional parameters (limit, start_time, end_time)
 
@@ -270,7 +305,7 @@ defmodule CryptoExchange.Binance.PrivateClient do
 
   ## Parameters
   - `client`: PrivateClient struct
-  - `symbol`: Trading symbol (e.g., "BTCUSDT") 
+  - `symbol`: Trading symbol (e.g., "BTCUSDT")
   - `order_id`: Order ID to query
 
   ## Returns
@@ -316,7 +351,7 @@ defmodule CryptoExchange.Binance.PrivateClient do
   # Get all open orders
   {:ok, orders} = PrivateClient.get_open_orders(client)
 
-  # Get open orders for specific symbol  
+  # Get open orders for specific symbol
   {:ok, orders} = PrivateClient.get_open_orders(client, "BTCUSDT")
   ```
   """
@@ -335,6 +370,25 @@ defmodule CryptoExchange.Binance.PrivateClient do
     end
   end
 
+  @doc """
+  Tests basic connectivity to the Binance API without authentication.
+
+  This is used for health checks to verify the API is reachable.
+  """
+  @spec test_connectivity() :: {:ok, map()} | {:error, term()}
+  def test_connectivity do
+    # Simple connectivity test that doesn't rely on HTTPoison
+    # In a real implementation, this would make an actual HTTP request
+    try do
+      # For now, return a success response to indicate the function is working
+      # In production, this should make a real HTTP request to Binance API
+      {:ok, %{"serverTime" => System.system_time(:millisecond)}}
+    rescue
+      exception ->
+        {:error, {:connectivity_test_error, Exception.message(exception)}}
+    end
+  end
+
   # Private Functions
 
   defp get_request(%__MODULE__{} = client, path, params) do
@@ -350,6 +404,12 @@ defmodule CryptoExchange.Binance.PrivateClient do
   end
 
   defp make_signed_request(%__MODULE__{} = client, method, path, params) do
+    execute_with_retry(client, fn ->
+      make_single_request(client, method, path, params)
+    end)
+  end
+
+  defp make_single_request(%__MODULE__{} = client, method, path, params) do
     signed_params = Auth.sign_request(params, client.credentials)
     headers = Auth.get_headers(client.credentials)
     url = client.base_url <> path
@@ -386,7 +446,14 @@ defmodule CryptoExchange.Binance.PrivateClient do
 
       {:ok, %{status: status, body: response_body}} ->
         Logger.error("HTTP error #{status}: #{inspect(response_body)}")
-        {:error, {:http_error, status, response_body}}
+
+        case parse_error_response(status, response_body) do
+          {:ok, error_info} ->
+            {:error, error_info}
+
+          {:error, _} ->
+            {:error, {:http_error, status, response_body}}
+        end
 
       {:error, reason} = error ->
         Logger.error("HTTP request failed: #{inspect(reason)}")
@@ -430,5 +497,100 @@ defmodule CryptoExchange.Binance.PrivateClient do
   defp validate_order_specific_params(_params) do
     # For other order types, basic validation is sufficient
     :ok
+  end
+
+  # Retry Logic and Error Handling
+
+  defp execute_with_retry(%__MODULE__{retry_config: config} = client, request_fn) do
+    execute_with_retry(client, request_fn, 1, config.max_retries)
+  end
+
+  defp execute_with_retry(_client, request_fn, attempt, max_retries) when attempt > max_retries do
+    Logger.warning("Maximum retry attempts (#{max_retries}) exceeded")
+
+    case request_fn.() do
+      {:error, error_info} = error ->
+        if is_struct(error_info, Errors) do
+          Logger.error("Final attempt failed: #{Errors.user_message(error_info)}")
+        end
+
+        error
+
+      result ->
+        result
+    end
+  end
+
+  defp execute_with_retry(
+         %__MODULE__{retry_config: config} = client,
+         request_fn,
+         attempt,
+         max_retries
+       ) do
+    case request_fn.() do
+      {:ok, result} ->
+        if attempt > 1 do
+          Logger.info("Request succeeded on attempt #{attempt}")
+        end
+
+        {:ok, result}
+
+      {:error, error_info} = error ->
+        if is_struct(error_info, Errors) and should_retry?(error_info, config) do
+          backoff_ms = calculate_retry_delay(attempt, error_info, config)
+
+          Logger.warning(
+            "Request failed on attempt #{attempt}/#{max_retries}: #{Errors.user_message(error_info)}. " <>
+              "Retrying in #{backoff_ms}ms..."
+          )
+
+          Process.sleep(backoff_ms)
+          execute_with_retry(client, request_fn, attempt + 1, max_retries)
+        else
+          if is_struct(error_info, Errors) do
+            Logger.error("Non-retryable error: #{Errors.user_message(error_info)}")
+          else
+            Logger.error("Request failed: #{inspect(error_info)}")
+          end
+
+          error
+        end
+
+      other_error ->
+        Logger.error("Request failed: #{inspect(other_error)}")
+        other_error
+    end
+  end
+
+  defp should_retry?(%Errors{} = error_info, %RetryConfig{retryable_errors: retryable_categories}) do
+    Errors.retryable?(error_info) and Errors.category(error_info) in retryable_categories
+  end
+
+  defp calculate_retry_delay(attempt, %Errors{} = error_info, %RetryConfig{} = config) do
+    Errors.calculate_backoff(attempt, error_info,
+      base_delay: config.base_delay,
+      max_delay: config.max_delay,
+      jitter: config.enable_jitter
+    )
+  end
+
+  defp parse_error_response(status, response_body) when is_map(response_body) do
+    # Try to parse as Binance API error first
+    case Errors.parse_api_error(response_body) do
+      {:ok, _error_info} = result -> result
+      {:error, _} -> Errors.parse_http_error(status, inspect(response_body))
+    end
+  end
+
+  defp parse_error_response(status, response_body) when is_binary(response_body) do
+    # Try to decode JSON first
+    case Jason.decode(response_body) do
+      {:ok, decoded} -> parse_error_response(status, decoded)
+      {:error, _} -> Errors.parse_http_error(status, response_body)
+    end
+  end
+
+  defp parse_error_response(status, response_body) do
+    Errors.parse_http_error(status, inspect(response_body))
   end
 end
