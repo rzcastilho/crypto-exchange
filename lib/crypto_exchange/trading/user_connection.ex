@@ -59,6 +59,7 @@ defmodule CryptoExchange.Trading.UserConnection do
 
   alias CryptoExchange.Binance.PrivateClient
   alias CryptoExchange.Models.{Order, Account}
+  alias CryptoExchange.Trading.ErrorHandler
 
   ## Client API
 
@@ -146,7 +147,10 @@ defmodule CryptoExchange.Trading.UserConnection do
   def handle_call({:place_order, order_params}, _from, state) do
     Logger.debug("Place order request for user #{state.user_id}: #{inspect(order_params)}")
 
-    case Order.validate_params(order_params) do
+    context = %{user_id: state.user_id, order_params: order_params}
+
+    # Enhanced validation with better error handling
+    case ErrorHandler.validate_trading_params(order_params, state.user_id) do
       :ok ->
         case PrivateClient.place_order(state.client, order_params) do
           {:ok, order_data} ->
@@ -160,16 +164,20 @@ defmodule CryptoExchange.Trading.UserConnection do
                   "Failed to parse order response for user #{state.user_id}: #{inspect(reason)}"
                 )
 
-                {:reply, {:error, :parse_error}, state}
+                enhanced_error =
+                  ErrorHandler.handle_trading_error(:place_order, {:error, :parse_error}, context)
+
+                {:reply, enhanced_error, state}
             end
 
-          {:error, reason} = error ->
+          {:error, reason} ->
             Logger.error("Failed to place order for user #{state.user_id}: #{inspect(reason)}")
-            {:reply, error, state}
+            enhanced_error = ErrorHandler.handle_trading_error(:place_order, reason, context)
+            {:reply, enhanced_error, state}
         end
 
-      {:error, reason} = error ->
-        Logger.warning("Invalid order parameters for user #{state.user_id}: #{inspect(reason)}")
+      {:error, _enhanced_error} = error ->
+        Logger.warning("Invalid order parameters for user #{state.user_id}")
         {:reply, error, state}
     end
   end
@@ -177,6 +185,8 @@ defmodule CryptoExchange.Trading.UserConnection do
   @impl true
   def handle_call({:cancel_order, symbol, order_id}, _from, state) do
     Logger.debug("Cancel order request for user #{state.user_id}: #{order_id} on #{symbol}")
+
+    context = %{user_id: state.user_id, symbol: symbol, order_id: order_id}
 
     case PrivateClient.cancel_order(state.client, symbol, order_id) do
       {:ok, cancelled_order_data} ->
@@ -190,18 +200,24 @@ defmodule CryptoExchange.Trading.UserConnection do
               "Failed to parse cancelled order response for user #{state.user_id}: #{inspect(reason)}"
             )
 
-            {:reply, {:error, :parse_error}, state}
+            enhanced_error =
+              ErrorHandler.handle_trading_error(:cancel_order, {:error, :parse_error}, context)
+
+            {:reply, enhanced_error, state}
         end
 
-      {:error, reason} = error ->
+      {:error, reason} ->
         Logger.error("Failed to cancel order for user #{state.user_id}: #{inspect(reason)}")
-        {:reply, error, state}
+        enhanced_error = ErrorHandler.handle_trading_error(:cancel_order, reason, context)
+        {:reply, enhanced_error, state}
     end
   end
 
   @impl true
   def handle_call(:get_balance, _from, state) do
     Logger.debug("Get balance request for user #{state.user_id}")
+
+    context = %{user_id: state.user_id}
 
     case PrivateClient.get_account(state.client) do
       {:ok, account_data} ->
@@ -220,18 +236,24 @@ defmodule CryptoExchange.Trading.UserConnection do
               "Failed to parse account data for user #{state.user_id}: #{inspect(reason)}"
             )
 
-            {:reply, {:error, :parse_error}, state}
+            enhanced_error =
+              ErrorHandler.handle_trading_error(:get_balance, {:error, :parse_error}, context)
+
+            {:reply, enhanced_error, state}
         end
 
-      {:error, reason} = error ->
+      {:error, reason} ->
         Logger.error("Failed to get balance for user #{state.user_id}: #{inspect(reason)}")
-        {:reply, error, state}
+        enhanced_error = ErrorHandler.handle_trading_error(:get_balance, reason, context)
+        {:reply, enhanced_error, state}
     end
   end
 
   @impl true
   def handle_call(:get_orders, _from, state) do
     Logger.debug("Get orders request for user #{state.user_id}")
+
+    context = %{user_id: state.user_id, symbol: "BTCUSDT"}
 
     case PrivateClient.get_orders(state.client, "BTCUSDT") do
       {:ok, orders_data} ->
@@ -255,12 +277,17 @@ defmodule CryptoExchange.Trading.UserConnection do
 
           {:error, reason} ->
             Logger.error("Failed to parse orders for user #{state.user_id}: #{inspect(reason)}")
-            {:reply, {:error, :parse_error}, state}
+
+            enhanced_error =
+              ErrorHandler.handle_trading_error(:get_orders, {:error, :parse_error}, context)
+
+            {:reply, enhanced_error, state}
         end
 
-      {:error, reason} = error ->
+      {:error, reason} ->
         Logger.error("Failed to get orders for user #{state.user_id}: #{inspect(reason)}")
-        {:reply, error, state}
+        enhanced_error = ErrorHandler.handle_trading_error(:get_orders, reason, context)
+        {:reply, enhanced_error, state}
     end
   end
 

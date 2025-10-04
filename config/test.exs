@@ -2,7 +2,7 @@ import Config
 
 # Test configuration
 
-config :logger, level: :warning
+config :logger, level: :debug
 
 # Use mock endpoints for testing
 config :crypto_exchange,
