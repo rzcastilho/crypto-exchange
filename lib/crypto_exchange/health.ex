@@ -80,7 +80,6 @@ defmodule CryptoExchange.Health do
   require Logger
 
   alias CryptoExchange.{Logging, Trading, Binance}
-  alias CryptoExchange.Binance.WebSocketHandler
 
   @type health_status :: :healthy | :degraded | :unhealthy | :unknown
   @type component_name ::
@@ -374,9 +373,9 @@ defmodule CryptoExchange.Health do
 
   defp check_websocket_connections do
     try do
-      # Check WebSocket handler health if available
-      case WebSocketHandler.get_connection_health(self()) do
-        health when is_map(health) ->
+      # Check WebSocket handler health via PublicStreams
+      case Binance.PublicStreams.get_connection_health() do
+        {:ok, health} when is_map(health) ->
           status =
             if health.connected do
               if health.circuit_breaker_state == :open do
@@ -394,12 +393,20 @@ defmodule CryptoExchange.Health do
             metadata: Map.merge(health, %{component: "websocket_handler"})
           }
 
+        {:error, :not_started} ->
+          %{
+            status: :unhealthy,
+            timestamp: DateTime.utc_now(),
+            error_message: "WebSocket PublicStreams not started",
+            metadata: %{error: :not_started, component: "websocket_handler"}
+          }
+
         {:error, reason} ->
           %{
             status: :unknown,
             timestamp: DateTime.utc_now(),
             error_message: "WebSocket health check failed: #{inspect(reason)}",
-            metadata: %{error: reason}
+            metadata: %{error: reason, component: "websocket_handler"}
           }
       end
     catch
@@ -408,7 +415,7 @@ defmodule CryptoExchange.Health do
           status: :unhealthy,
           timestamp: DateTime.utc_now(),
           error_message: "WebSocket connection check failed: #{inspect(reason)}",
-          metadata: %{exit_reason: reason}
+          metadata: %{exit_reason: reason, component: "websocket_handler"}
         }
     end
   end

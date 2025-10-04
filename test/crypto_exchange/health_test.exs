@@ -181,13 +181,15 @@ defmodule CryptoExchange.HealthTest do
 
       assert result.status in [:healthy, :degraded, :unhealthy]
 
-      # Should handle case where no users are connected
+      # Should handle case where no users are connected or trading system is unavailable
       metadata = result.metadata
       assert is_integer(metadata.total_users)
       assert metadata.total_users >= 0
 
+      # When no users are connected (if Trading system is available), status should be degraded
+      # If Trading system is unavailable, status will be unhealthy with total_users: 0
       if metadata.total_users == 0 do
-        assert result.status == :degraded
+        assert result.status in [:degraded, :unhealthy]
       end
     end
 

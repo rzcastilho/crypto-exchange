@@ -157,12 +157,25 @@ defmodule CryptoExchange.Logging do
       end_time = System.monotonic_time(:millisecond)
       duration = end_time - start_time
 
-      timing_metadata =
-        metadata
-        |> Map.put(:duration_ms, duration)
-        |> Map.put(:status, :success)
+      # Check if result is an error tuple
+      case result do
+        {:error, _} ->
+          timing_metadata =
+            metadata
+            |> Map.put(:duration_ms, duration)
+            |> Map.put(:status, :error)
 
-      info("#{message} completed", timing_metadata)
+          error("#{message} failed", timing_metadata)
+
+        _ ->
+          timing_metadata =
+            metadata
+            |> Map.put(:duration_ms, duration)
+            |> Map.put(:status, :success)
+
+          info("#{message} completed", timing_metadata)
+      end
+
       result
     rescue
       exception ->

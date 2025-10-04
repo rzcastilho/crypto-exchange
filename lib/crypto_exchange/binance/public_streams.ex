@@ -94,6 +94,7 @@ defmodule CryptoExchange.Binance.PublicStreams do
   require Logger
 
   alias CryptoExchange.Models.{Ticker, OrderBook, Trade, Kline}
+  alias CryptoExchange.Binance.WebSocketHandler
 
   @name __MODULE__
 
@@ -170,6 +171,30 @@ defmodule CryptoExchange.Binance.PublicStreams do
   """
   def status do
     GenServer.call(@name, :status)
+  end
+
+  @doc """
+  Gets the health of the WebSocket connection.
+
+  ## Returns
+  - `{:ok, health_map}` - Health information including connection status
+  - `{:error, reason}` - If unable to get health (e.g., PublicStreams not started)
+
+  ## Examples
+      {:ok, health} = CryptoExchange.Binance.PublicStreams.get_connection_health()
+  """
+  def get_connection_health do
+    try do
+      case GenServer.whereis(@name) do
+        nil ->
+          {:error, :not_started}
+
+        pid ->
+          GenServer.call(pid, :get_connection_health, 2000)
+      end
+    catch
+      :exit, reason -> {:error, reason}
+    end
   end
 
   ## GenServer Callbacks
@@ -263,6 +288,44 @@ defmodule CryptoExchange.Binance.PublicStreams do
       end
 
     {:reply, status, state}
+  end
+
+  @impl true
+  def handle_call(:get_connection_health, _from, state) do
+    # If we have a websocket PID, get its health directly
+    health =
+      case state.websocket do
+        nil ->
+          %{
+            connected: false,
+            connection_status: state.connection_status,
+            circuit_breaker_state: :open,
+            retry_count: 0,
+            total_reconnects: 0,
+            buffered_messages: 0,
+            subscriptions: MapSet.to_list(state.subscriptions)
+          }
+
+        ws_pid ->
+          # Try to get health from the WebSocket handler
+          case WebSocketHandler.get_connection_health(ws_pid) do
+            health_map when is_map(health_map) ->
+              Map.put(health_map, :subscriptions, MapSet.to_list(state.subscriptions))
+
+            {:error, _reason} ->
+              %{
+                connected: false,
+                connection_status: state.connection_status,
+                circuit_breaker_state: :open,
+                retry_count: 0,
+                total_reconnects: 0,
+                buffered_messages: 0,
+                subscriptions: MapSet.to_list(state.subscriptions)
+              }
+          end
+      end
+
+    {:reply, {:ok, health}, state}
   end
 
   @impl true

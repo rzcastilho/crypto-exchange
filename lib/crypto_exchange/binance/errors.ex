@@ -412,6 +412,12 @@ defmodule CryptoExchange.Binance.Errors do
       retryable: false,
       user_message: "The requested resource was not found."
     },
+    408 => %{
+      category: :network,
+      severity: :warning,
+      retryable: true,
+      user_message: "Request timeout. Please try again."
+    },
     418 => %{
       category: :authentication,
       severity: :error,
