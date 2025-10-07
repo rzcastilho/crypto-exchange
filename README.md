@@ -8,13 +8,13 @@ A production-ready Elixir/OTP library for cryptocurrency exchange integration wi
 
 ## Features
 
-- 🚀 **Real-Time Market Data**: WebSocket streaming with automatic reconnection and circuit breaker patterns
-- 💼 **Secure Trading Operations**: Isolated user sessions with credential management
-- 🔄 **Phoenix.PubSub Integration**: Efficient market data distribution to multiple subscribers
-- 🛡️ **Comprehensive Error Handling**: Intelligent error classification with retry strategies
-- 📊 **Health Monitoring**: Component-level and system-wide health checks
-- 📝 **Structured Logging**: Context-aware logging with performance tracking
-- ⚡ **Production Ready**: Battle-tested with 359+ tests and robust resilience patterns
+- **Real-Time Market Data**: WebSocket streaming with automatic reconnection and circuit breaker patterns
+- **Secure Trading Operations**: Isolated user sessions with credential management
+- **Phoenix.PubSub Integration**: Efficient market data distribution to multiple subscribers
+- **Comprehensive Error Handling**: Intelligent error classification with retry strategies
+- **Health Monitoring**: Component-level and system-wide health checks
+- **Structured Logging**: Context-aware logging with performance tracking
+- **Production Ready**: Comprehensive test coverage and robust resilience patterns
 
 ## Table of Contents
 
@@ -50,11 +50,17 @@ mix deps.get
 
 ## Quick Start
 
+The library provides two main API modules:
+- **`CryptoExchange.PublicStreams.StreamManager`** - For public market data streaming
+- **`CryptoExchange.Trading`** - For authenticated trading operations
+
 ### 1. Subscribe to Public Market Data
 
 ```elixir
+alias CryptoExchange.PublicStreams.StreamManager
+
 # Start subscribing to BTC ticker updates
-{:ok, topic} = CryptoExchange.API.subscribe_to_ticker("BTCUSDT")
+{:ok, topic} = StreamManager.subscribe_to_ticker("BTCUSDT")
 
 # Subscribe to the PubSub topic
 Phoenix.PubSub.subscribe(CryptoExchange.PubSub, topic)
@@ -68,7 +74,7 @@ receive do
 end
 
 # Subscribe to order book depth
-{:ok, topic} = CryptoExchange.API.subscribe_to_depth("ETHUSDT", 10)
+{:ok, topic} = StreamManager.subscribe_to_depth("ETHUSDT", 10)
 Phoenix.PubSub.subscribe(CryptoExchange.PubSub, topic)
 
 receive do
@@ -78,7 +84,7 @@ receive do
 end
 
 # Subscribe to live trades
-{:ok, topic} = CryptoExchange.API.subscribe_to_trades("BTCUSDT")
+{:ok, topic} = StreamManager.subscribe_to_trades("BTCUSDT")
 Phoenix.PubSub.subscribe(CryptoExchange.PubSub, topic)
 
 receive do
@@ -90,39 +96,43 @@ end
 ### 2. User Trading Operations
 
 ```elixir
+alias CryptoExchange.Trading
+
 # Connect a user with their Binance API credentials
 user_id = "user123"
-api_key = System.get_env("BINANCE_API_KEY")
-secret_key = System.get_env("BINANCE_SECRET_KEY")
+credentials = %{
+  api_key: System.get_env("BINANCE_API_KEY"),
+  secret_key: System.get_env("BINANCE_SECRET_KEY")
+}
 
-{:ok, _pid} = CryptoExchange.API.connect_user(user_id, api_key, secret_key)
+{:ok, ^user_id} = Trading.connect_user(user_id, credentials)
 
 # Check account balance
-{:ok, balances} = CryptoExchange.API.get_balance(user_id)
+{:ok, balances} = Trading.get_balance(user_id)
 IO.inspect(balances)
 
 # Place a limit order
-{:ok, order} = CryptoExchange.API.place_order(user_id, %{
-  symbol: "BTCUSDT",
-  side: "BUY",
-  type: "LIMIT",
-  quantity: "0.001",
-  price: "50000",
-  time_in_force: "GTC"
+{:ok, order} = Trading.place_order(user_id, %{
+  "symbol" => "BTCUSDT",
+  "side" => "BUY",
+  "type" => "LIMIT",
+  "quantity" => "0.001",
+  "price" => "50000",
+  "timeInForce" => "GTC"
 })
 
 IO.puts("Order placed: #{order.order_id}")
 
 # Get open orders
-{:ok, orders} = CryptoExchange.API.get_orders(user_id, "BTCUSDT")
+{:ok, orders} = Trading.get_orders(user_id)
 IO.inspect(orders, label: "Open Orders")
 
 # Cancel an order
-{:ok, result} = CryptoExchange.API.cancel_order(user_id, order.order_id, "BTCUSDT")
+{:ok, result} = Trading.cancel_order(user_id, "BTCUSDT", order.order_id)
 IO.puts("Order cancelled: #{result.order_id}")
 
 # Disconnect user when done
-:ok = CryptoExchange.API.disconnect_user(user_id)
+:ok = Trading.disconnect_user(user_id)
 ```
 
 ### 3. Health Monitoring
@@ -293,12 +303,14 @@ CryptoExchange.Application (Supervisor)
 ### Advanced Trading Scenarios
 
 ```elixir
+alias CryptoExchange.Trading
+
 # Market order with error handling
-case CryptoExchange.API.place_order(user_id, %{
-  symbol: "BTCUSDT",
-  side: "BUY",
-  type: "MARKET",
-  quantity: "0.001"
+case Trading.place_order(user_id, %{
+  "symbol" => "BTCUSDT",
+  "side" => "BUY",
+  "type" => "MARKET",
+  "quantity" => "0.001"
 }) do
   {:ok, order} ->
     IO.puts("Market order executed: #{order.order_id}")
@@ -318,12 +330,14 @@ end
 ### Multiple Subscriptions
 
 ```elixir
+alias CryptoExchange.PublicStreams.StreamManager
+
 # Subscribe to multiple symbols
 symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT"]
 
 topics =
   Enum.map(symbols, fn symbol ->
-    {:ok, topic} = CryptoExchange.API.subscribe_to_ticker(symbol)
+    {:ok, topic} = StreamManager.subscribe_to_ticker(symbol)
     Phoenix.PubSub.subscribe(CryptoExchange.PubSub, topic)
     topic
   end)
@@ -345,14 +359,14 @@ MarketDataHandler.listen()
 ### Using Structured Logging
 
 ```elixir
-alias CryptoExchange.Logging
+alias CryptoExchange.{Logging, Trading}
 
 # Set user context for all subsequent logs
 Logging.set_context(%{user_id: "user123", session_id: "abc-def"})
 
 # Log trading operation with timing
 result = Logging.with_timing("Place order", %{category: :trading}, fn ->
-  CryptoExchange.API.place_order(user_id, order_params)
+  Trading.place_order(user_id, order_params)
 end)
 
 # Logs will include:
@@ -485,10 +499,14 @@ All errors follow a consistent structure:
 
 ```elixir
 # Check specific components
+# Available components: :application, :binance_api, :websocket_connections,
+#                       :trading_system, :user_connections, :external_dependencies
+
 {:ok, app_health} = CryptoExchange.Health.check_component(:application)
 {:ok, trading_health} = CryptoExchange.Health.check_component(:trading_system)
 {:ok, ws_health} = CryptoExchange.Health.check_component(:websocket_connections)
 {:ok, users_health} = CryptoExchange.Health.check_component(:user_connections)
+{:ok, api_health} = CryptoExchange.Health.check_component(:binance_api)
 ```
 
 ## Testing
@@ -509,10 +527,10 @@ mix test test/crypto_exchange/api_test.exs
 mix test --only integration
 ```
 
-**Test Statistics**:
-- 359+ total tests
-- 0 failures
-- Coverage: >90%
+**Test Coverage**:
+- Comprehensive test suite with unit, integration, and error scenario tests
+- All tests passing with high coverage
+- Continuous integration via GitHub Actions
 
 **Test Categories**:
 - Unit tests for individual modules
@@ -523,25 +541,37 @@ mix test --only integration
 
 ## API Reference
 
-### CryptoExchange.API
+### CryptoExchange.PublicStreams.StreamManager
 
-Main public API module.
+Public market data streaming module.
 
 #### Public Market Data
 
 - `subscribe_to_ticker(symbol)` - Subscribe to 24hr ticker statistics
 - `subscribe_to_depth(symbol, level \\ 5)` - Subscribe to order book depth
 - `subscribe_to_trades(symbol)` - Subscribe to live trades
-- `unsubscribe_from_public_data(symbol)` - Unsubscribe from all public streams
+- `subscribe_to_klines(symbol, interval \\ "1m")` - Subscribe to candlestick data
+- `unsubscribe(symbol)` - Unsubscribe from all streams for a symbol
 
-#### User Trading
+### CryptoExchange.Trading
 
-- `connect_user(user_id, api_key, secret_key)` - Connect user with credentials
+User trading operations module.
+
+#### User Management
+
+- `connect_user(user_id, credentials)` - Connect user with API credentials (map with :api_key and :secret_key)
 - `disconnect_user(user_id)` - Disconnect user and cleanup resources
+- `list_connected_users()` - Get list of all connected user IDs
+- `user_connected?(user_id)` - Check if a user is connected
+- `get_user_info(user_id)` - Get connection details for a user
+- `get_system_stats()` - Get system-wide trading statistics
+
+#### Trading Operations
+
 - `place_order(user_id, order_params)` - Place a new order
-- `cancel_order(user_id, order_id, symbol)` - Cancel an existing order
-- `get_balance(user_id)` - Get account balance
-- `get_orders(user_id, symbol)` - Get open orders for symbol
+- `cancel_order(user_id, symbol, order_id)` - Cancel an existing order
+- `get_balance(user_id)` - Get account balance (returns non-zero balances only)
+- `get_orders(user_id)` - Get order history (returns up to 50 recent orders)
 
 ### CryptoExchange.Health
 
@@ -656,9 +686,7 @@ For issues, questions, or contributions:
 - [ ] WebSocket account updates (user data streams)
 - [ ] Advanced credential encryption
 - [ ] Telemetry integration
-- [ ] GraphQL API
-- [ ] Docker deployment support
 
 ---
 
-**Built with ❤️ using Elixir/OTP**
+**Built with Elixir/OTP**
