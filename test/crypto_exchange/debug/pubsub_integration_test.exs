@@ -4,6 +4,10 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
 
   These tests verify that data flows correctly from WebSocket messages
   through parsing and into PubSub topics.
+
+  NOTE: These tests are excluded by default because they require
+  a running WebSocket connection. To run them, use:
+  mix test --include integration
   """
 
   use ExUnit.Case, async: false
@@ -12,6 +16,7 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
   alias CryptoExchange.Debug.PubSubSubscriber
   alias CryptoExchange.Binance.PublicStreams
 
+  @moduletag :integration
   @moduletag :pubsub_debug
 
   describe "PubSub data flow verification" do
