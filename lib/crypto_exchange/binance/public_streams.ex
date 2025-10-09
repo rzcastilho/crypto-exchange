@@ -494,8 +494,13 @@ defmodule CryptoExchange.Binance.PublicStreams do
   defp handle_binance_message(%{"stream" => stream, "data" => data}) do
     Logger.debug("Received stream data: #{stream}")
 
+    Logger.debug(
+      "[PARSING] Raw data from stream: #{inspect(data, pretty: true, limit: :infinity)}"
+    )
+
     case parse_stream_data(stream, data) do
       {:ok, parsed_data} ->
+        Logger.debug("[PARSING] Successfully parsed stream data")
         broadcast_market_data(parsed_data)
 
       {:error, reason} ->
@@ -503,10 +508,14 @@ defmodule CryptoExchange.Binance.PublicStreams do
     end
   end
 
-  defp handle_binance_message(%{"e" => "kline", "s" => symbol, "k" => kline_data}) do
+  defp handle_binance_message(%{"e" => "kline", "s" => symbol, "k" => _kline_data} = full_message) do
     Logger.debug("Received kline data for #{symbol}")
 
-    case parse_kline_message(symbol, kline_data) do
+    Logger.debug(
+      "[PARSING] Raw kline message: #{inspect(full_message, pretty: true, limit: :infinity)}"
+    )
+
+    case parse_kline_message(symbol, full_message) do
       {:ok, parsed_data} ->
         broadcast_market_data(parsed_data)
 
@@ -666,7 +675,20 @@ defmodule CryptoExchange.Binance.PublicStreams do
   end
 
   defp parse_kline_data(symbol, interval, data) do
-    case Kline.parse(data) do
+    # When receiving from stream format, data IS the kline data
+    # We need to wrap it in the format that Kline.parse expects
+    wrapped_data = %{
+      "e" => Map.get(data, "e", "kline"),
+      "E" => Map.get(data, "E"),
+      "s" => symbol,
+      "k" => data
+    }
+
+    Logger.debug(
+      "[PARSING] Wrapped kline data: #{inspect(wrapped_data, pretty: true, limit: :infinity)}"
+    )
+
+    case Kline.parse(wrapped_data) do
       {:ok, kline} ->
         parsed = %{
           type: :klines,
@@ -682,11 +704,15 @@ defmodule CryptoExchange.Binance.PublicStreams do
     end
   end
 
-  defp parse_kline_message(symbol, kline_data) do
-    # Extract interval from the kline data
+  defp parse_kline_message(symbol, full_message) do
+    # Extract kline data and interval
+    kline_data = Map.get(full_message, "k", %{})
     interval = kline_data["i"]
 
-    case Kline.parse(kline_data) do
+    Logger.debug("[PARSING] Parsing kline message with full data structure")
+
+    # Kline.parse expects the full message format with "e", "E", "s", "k"
+    case Kline.parse(full_message) do
       {:ok, kline} ->
         parsed = %{
           type: :klines,
@@ -694,6 +720,10 @@ defmodule CryptoExchange.Binance.PublicStreams do
           interval: interval,
           data: kline
         }
+
+        Logger.debug(
+          "[PARSING] Successfully parsed kline: #{inspect(kline, pretty: true, limit: :infinity)}"
+        )
 
         {:ok, parsed}
 
@@ -771,11 +801,49 @@ defmodule CryptoExchange.Binance.PublicStreams do
           build_topic(market_data.type, market_data.symbol)
       end
 
-    Phoenix.PubSub.broadcast(
-      CryptoExchange.PubSub,
-      topic,
-      {:market_data, market_data}
-    )
+    # Log data BEFORE broadcasting to PubSub
+    Logger.debug("""
+    [PUBSUB BROADCAST - BEFORE]
+    Timestamp: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+    Topic: #{topic}
+    Type: #{market_data.type}
+    Symbol: #{market_data.symbol}
+    Data: #{inspect(market_data.data, pretty: true, limit: :infinity)}
+    Full Message: #{inspect({:market_data, market_data}, pretty: true, limit: :infinity)}
+    """)
+
+    # Broadcast to PubSub
+    result =
+      Phoenix.PubSub.broadcast(
+        CryptoExchange.PubSub,
+        topic,
+        {:market_data, market_data}
+      )
+
+    # Log data AFTER broadcasting to PubSub
+    case result do
+      :ok ->
+        Logger.debug("""
+        [PUBSUB BROADCAST - AFTER SUCCESS]
+        Timestamp: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+        Topic: #{topic}
+        Type: #{market_data.type}
+        Symbol: #{market_data.symbol}
+        Result: Successfully broadcast to PubSub
+        """)
+
+      {:error, reason} ->
+        Logger.error("""
+        [PUBSUB BROADCAST - AFTER ERROR]
+        Timestamp: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+        Topic: #{topic}
+        Type: #{market_data.type}
+        Symbol: #{market_data.symbol}
+        Error: #{inspect(reason)}
+        """)
+    end
+
+    result
   end
 
   defp build_topic(stream_type, symbol) do
