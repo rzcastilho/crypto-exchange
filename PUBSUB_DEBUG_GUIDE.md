@@ -304,35 +304,36 @@ end
 ### Created:
 - `lib/crypto_exchange/debug/pubsub_subscriber.ex` - Debug subscriber GenServer
 - `test/crypto_exchange/debug/pubsub_broadcast_test.exs` - Unit tests for PubSub broadcasting
-- `test/crypto_exchange/debug/pubsub_integration_test.exs` - Integration tests (see note below)
 - `PUBSUB_DEBUG_GUIDE.md` - This documentation
 
-### Integration Tests Note:
+### Testing Approach:
 
-The integration tests (`pubsub_integration_test.exs`) are **excluded by default** because they simulate WebSocket message flow and require the application to be running.
+**Unit Tests** (`pubsub_broadcast_test.exs`):
+- Test PubSub broadcasting logic directly
+- Verify all message types (ticker, depth, trades, klines)
+- Verify topic naming and isolation
+- Run with: `mix test test/crypto_exchange/debug/pubsub_broadcast_test.exs`
 
-**How to run:**
-```bash
-# Unit tests only (default)
-mix test
+**Manual Integration Testing** (recommended for end-to-end verification):
+Since integration tests require a live WebSocket connection to Binance, the best way to verify the complete flow is through manual testing:
 
-# Include integration tests
-mix test --include integration
-```
-
-**What integration tests do:**
-- Start PublicStreams GenServer in test mode
-- Simulate WebSocket messages by sending `{:websocket_message, json}` to PublicStreams
-- Verify complete data flow from message reception through PubSub broadcast
-- Test all message types (ticker, depth, trades, klines)
-- Verify topic naming consistency
-
-**Note:** Integration tests currently rely on the application starting PublicStreams.
-For manual testing with live WebSocket:
 1. Start the application: `iex -S mix`
-2. Use the PubSubSubscriber debug tool (see above)
-3. Subscribe to a Binance stream via StreamManager
-4. Monitor PubSub messages with the debug subscriber
+2. Use the PubSubSubscriber debug tool:
+   ```elixir
+   {:ok, _} = CryptoExchange.Debug.PubSubSubscriber.start_link()
+   CryptoExchange.Debug.PubSubSubscriber.subscribe("binance:ticker:BTCUSDT")
+   ```
+3. Subscribe to a Binance stream via StreamManager:
+   ```elixir
+   CryptoExchange.PublicStreams.StreamManager.subscribe_to_ticker("BTCUSDT")
+   ```
+4. Monitor PubSub messages:
+   ```elixir
+   CryptoExchange.Debug.PubSubSubscriber.message_count()
+   CryptoExchange.Debug.PubSubSubscriber.get_messages(5)
+   ```
+
+This approach tests the **real** data flow with actual Binance WebSocket messages.
 
 ## Bug Found and Fixed
 
