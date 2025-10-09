@@ -35,10 +35,38 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
       # Clear any previous messages
       PubSubSubscriber.clear_messages()
 
-      {:ok, %{subscriber: subscriber_pid}}
+      # Get or start PublicStreams
+      public_streams_pid =
+        case Process.whereis(PublicStreams) do
+          nil ->
+            # If not running, start it manually for the test
+            # Note: This won't connect to actual WebSocket, but it will process messages
+            {:ok, pid} = start_supervised({PublicStreams, [ws_url: "ws://localhost:9999/test"]})
+            pid
+
+          pid ->
+            pid
+        end
+
+      {:ok, %{subscriber: subscriber_pid, public_streams: public_streams_pid}}
     end
 
-    test "ticker data flows from WebSocket to PubSub", %{subscriber: _subscriber} do
+    # Helper function to send a WebSocket message to PublicStreams
+    defp send_websocket_message(public_streams_pid, message) do
+      case public_streams_pid do
+        nil ->
+          raise "PublicStreams process not found. Make sure the application is started."
+
+        pid when is_pid(pid) ->
+          send(pid, {:websocket_message, Jason.encode!(message)})
+          :ok
+      end
+    end
+
+    test "ticker data flows from WebSocket to PubSub", %{
+      subscriber: _subscriber,
+      public_streams: public_streams
+    } do
       # Subscribe to ticker topic
       symbol = "BTCUSDT"
       topic = "binance:ticker:#{symbol}"
@@ -76,7 +104,7 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
 
       # Send the message directly to PublicStreams process
       # This simulates what WebSocketHandler would send
-      send(PublicStreams, {:websocket_message, Jason.encode!(binance_message)})
+      send_websocket_message(public_streams, binance_message)
 
       # Wait for message to be processed
       Process.sleep(100)
@@ -100,7 +128,10 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
       assert is_struct(message.data, CryptoExchange.Models.Ticker)
     end
 
-    test "depth data flows from WebSocket to PubSub", %{subscriber: _subscriber} do
+    test "depth data flows from WebSocket to PubSub", %{
+      subscriber: _subscriber,
+      public_streams: public_streams
+    } do
       # Subscribe to depth topic
       symbol = "BTCUSDT"
       topic = "binance:depth:#{symbol}"
@@ -120,7 +151,7 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
         }
       }
 
-      send(PublicStreams, {:websocket_message, Jason.encode!(binance_message)})
+      send_websocket_message(public_streams, binance_message)
       Process.sleep(100)
 
       messages = PubSubSubscriber.get_messages(1)
@@ -140,7 +171,10 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
       assert is_struct(message.data, CryptoExchange.Models.OrderBook)
     end
 
-    test "trade data flows from WebSocket to PubSub", %{subscriber: _subscriber} do
+    test "trade data flows from WebSocket to PubSub", %{
+      subscriber: _subscriber,
+      public_streams: public_streams
+    } do
       # Subscribe to trades topic
       symbol = "BTCUSDT"
       topic = "binance:trades:#{symbol}"
@@ -164,7 +198,7 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
         }
       }
 
-      send(PublicStreams, {:websocket_message, Jason.encode!(binance_message)})
+      send_websocket_message(public_streams, binance_message)
       Process.sleep(100)
 
       messages = PubSubSubscriber.get_messages(1)
@@ -184,7 +218,10 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
       assert is_struct(message.data, CryptoExchange.Models.Trade)
     end
 
-    test "kline data flows from WebSocket to PubSub", %{subscriber: _subscriber} do
+    test "kline data flows from WebSocket to PubSub", %{
+      subscriber: _subscriber,
+      public_streams: public_streams
+    } do
       # Subscribe to klines topic with interval
       symbol = "BTCUSDT"
       interval = "1m"
@@ -219,7 +256,7 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
         }
       }
 
-      send(PublicStreams, {:websocket_message, Jason.encode!(binance_message)})
+      send_websocket_message(public_streams, binance_message)
       Process.sleep(100)
 
       messages = PubSubSubscriber.get_messages(1)
@@ -239,7 +276,10 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
       assert is_struct(message.data, CryptoExchange.Models.Kline)
     end
 
-    test "verifies topic naming consistency", %{subscriber: _subscriber} do
+    test "verifies topic naming consistency", %{
+      subscriber: _subscriber,
+      public_streams: public_streams
+    } do
       # This test verifies that topic names match between broadcaster and subscriber
 
       test_cases = [
@@ -322,7 +362,7 @@ defmodule CryptoExchange.Debug.PubSubIntegrationTest do
           end
 
         binance_message = %{"stream" => test_case.stream, "data" => data}
-        send(PublicStreams, {:websocket_message, Jason.encode!(binance_message)})
+        send_websocket_message(public_streams, binance_message)
         Process.sleep(50)
 
         count = PubSubSubscriber.message_count()

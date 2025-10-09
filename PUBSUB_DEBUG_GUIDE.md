@@ -304,8 +304,35 @@ end
 ### Created:
 - `lib/crypto_exchange/debug/pubsub_subscriber.ex` - Debug subscriber GenServer
 - `test/crypto_exchange/debug/pubsub_broadcast_test.exs` - Unit tests for PubSub broadcasting
-- `test/crypto_exchange/debug/pubsub_integration_test.exs` - Integration tests (for reference)
+- `test/crypto_exchange/debug/pubsub_integration_test.exs` - Integration tests (see note below)
 - `PUBSUB_DEBUG_GUIDE.md` - This documentation
+
+### Integration Tests Note:
+
+The integration tests (`pubsub_integration_test.exs`) are **excluded by default** because they simulate WebSocket message flow and require the application to be running.
+
+**How to run:**
+```bash
+# Unit tests only (default)
+mix test
+
+# Include integration tests
+mix test --include integration
+```
+
+**What integration tests do:**
+- Start PublicStreams GenServer in test mode
+- Simulate WebSocket messages by sending `{:websocket_message, json}` to PublicStreams
+- Verify complete data flow from message reception through PubSub broadcast
+- Test all message types (ticker, depth, trades, klines)
+- Verify topic naming consistency
+
+**Note:** Integration tests currently rely on the application starting PublicStreams.
+For manual testing with live WebSocket:
+1. Start the application: `iex -S mix`
+2. Use the PubSubSubscriber debug tool (see above)
+3. Subscribe to a Binance stream via StreamManager
+4. Monitor PubSub messages with the debug subscriber
 
 ## Bug Found and Fixed
 
