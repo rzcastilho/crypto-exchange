@@ -493,7 +493,10 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   defp handle_binance_message(%{"stream" => stream, "data" => data}) do
     Logger.debug("Received stream data: #{stream}")
-    Logger.debug("[PARSING] Raw data from stream: #{inspect(data, pretty: true, limit: :infinity)}")
+
+    Logger.debug(
+      "[PARSING] Raw data from stream: #{inspect(data, pretty: true, limit: :infinity)}"
+    )
 
     case parse_stream_data(stream, data) do
       {:ok, parsed_data} ->
@@ -507,7 +510,10 @@ defmodule CryptoExchange.Binance.PublicStreams do
 
   defp handle_binance_message(%{"e" => "kline", "s" => symbol, "k" => _kline_data} = full_message) do
     Logger.debug("Received kline data for #{symbol}")
-    Logger.debug("[PARSING] Raw kline message: #{inspect(full_message, pretty: true, limit: :infinity)}")
+
+    Logger.debug(
+      "[PARSING] Raw kline message: #{inspect(full_message, pretty: true, limit: :infinity)}"
+    )
 
     case parse_kline_message(symbol, full_message) do
       {:ok, parsed_data} ->
@@ -678,7 +684,9 @@ defmodule CryptoExchange.Binance.PublicStreams do
       "k" => data
     }
 
-    Logger.debug("[PARSING] Wrapped kline data: #{inspect(wrapped_data, pretty: true, limit: :infinity)}")
+    Logger.debug(
+      "[PARSING] Wrapped kline data: #{inspect(wrapped_data, pretty: true, limit: :infinity)}"
+    )
 
     case Kline.parse(wrapped_data) do
       {:ok, kline} ->
@@ -713,7 +721,10 @@ defmodule CryptoExchange.Binance.PublicStreams do
           data: kline
         }
 
-        Logger.debug("[PARSING] Successfully parsed kline: #{inspect(kline, pretty: true, limit: :infinity)}")
+        Logger.debug(
+          "[PARSING] Successfully parsed kline: #{inspect(kline, pretty: true, limit: :infinity)}"
+        )
+
         {:ok, parsed}
 
       {:error, reason} ->
