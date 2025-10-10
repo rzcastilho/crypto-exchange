@@ -9,12 +9,13 @@ A production-ready Elixir/OTP library for cryptocurrency exchange integration wi
 ## Features
 
 - 🚀 **Real-Time Market Data**: WebSocket streaming with automatic reconnection and circuit breaker patterns
+- 📈 **Historical Data Retrieval**: REST API access to historical klines/candlestick data for backtesting
 - 💼 **Secure Trading Operations**: Isolated user sessions with credential management
 - 🔄 **Phoenix.PubSub Integration**: Efficient market data distribution to multiple subscribers
 - 🛡️ **Comprehensive Error Handling**: Intelligent error classification with retry strategies
 - 📊 **Health Monitoring**: Component-level and system-wide health checks
 - 📝 **Structured Logging**: Context-aware logging with performance tracking
-- ⚡ **Production Ready**: Battle-tested with 359+ tests and robust resilience patterns
+- ⚡ **Production Ready**: Battle-tested with 373+ tests and robust resilience patterns
 
 ## Table of Contents
 
