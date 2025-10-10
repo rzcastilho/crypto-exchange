@@ -342,7 +342,8 @@ defmodule CryptoExchange.Binance.PublicClient do
 
   defp validate_interval(interval) do
     {:error,
-     {:invalid_interval, "Invalid interval '#{interval}'. Valid intervals: #{inspect(@valid_intervals)}"}}
+     {:invalid_interval,
+      "Invalid interval '#{interval}'. Valid intervals: #{inspect(@valid_intervals)}"}}
   end
 
   defp validate_limit(nil), do: :ok
