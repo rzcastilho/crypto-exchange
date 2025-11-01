@@ -9,7 +9,7 @@ A production-ready Elixir/OTP library for cryptocurrency exchange integration wi
 ## Features
 
 - 🚀 **Real-Time Market Data**: WebSocket streaming with automatic reconnection and circuit breaker patterns
-- 📈 **Historical Data Retrieval**: REST API access to historical klines/candlestick data for backtesting
+- 📈 **Historical Data Retrieval**: REST API access to historical klines/candlestick data with bulk fetching support (>1000 candles)
 - 💼 **Secure Trading Operations**: Isolated user sessions with credential management
 - 🔄 **Phoenix.PubSub Integration**: Efficient market data distribution to multiple subscribers
 - 🛡️ **Comprehensive Error Handling**: Intelligent error classification with retry strategies
@@ -290,6 +290,35 @@ CryptoExchange.Application (Supervisor)
 - Trading operation logging
 
 ## Usage Examples
+
+### Historical Data Retrieval
+
+```elixir
+# Get last 500 1-hour candles (up to 1000 with standard function)
+{:ok, klines} = CryptoExchange.get_historical_klines("BTCUSDT", "1h", limit: 500)
+
+# Get candles for a specific date range
+{:ok, klines} = CryptoExchange.get_historical_klines("ETHUSDT", "1d",
+  start_time: 1609459200000,  # 2021-01-01
+  end_time: 1640995199000     # 2021-12-31
+)
+
+# Fetch more than 1000 candles using bulk fetching (automatic pagination)
+{:ok, klines} = CryptoExchange.get_historical_klines_bulk("BTCUSDT", "1h", limit: 5000)
+
+IO.puts("Fetched #{length(klines)} klines")
+first_kline = List.first(klines)
+last_kline = List.last(klines)
+
+# Process the klines
+Enum.each(klines, fn kline ->
+  IO.puts("Time: #{kline.open_time}, Open: #{kline.open_price}, Close: #{kline.close_price}")
+end)
+
+# Calculate statistics
+total_volume = Enum.reduce(klines, 0, fn kline, acc -> acc + kline.volume end)
+IO.puts("Total volume: #{total_volume}")
+```
 
 ### Advanced Trading Scenarios
 
@@ -653,7 +682,7 @@ For issues, questions, or contributions:
 
 - [ ] Additional exchange support (Coinbase, Kraken, etc.)
 - [ ] Advanced order types (OCO, trailing stop, etc.)
-- [ ] Historical data retrieval
+- [x] Historical data retrieval (✅ Implemented with bulk fetching support)
 - [ ] WebSocket account updates (user data streams)
 - [ ] Advanced credential encryption
 - [ ] Telemetry integration
