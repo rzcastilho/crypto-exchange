@@ -194,6 +194,94 @@ defmodule CryptoExchange.Binance.PublicClient do
   end
 
   @doc """
+  Retrieves historical kline/candlestick data for a symbol with support for
+  fetching more than 1000 candles by making multiple paginated requests.
+
+  This function automatically handles pagination when the requested limit exceeds
+  1000 candles (Binance's per-request maximum). It makes multiple API calls and
+  combines the results into a single list.
+
+  ## Parameters
+  - `client`: PublicClient struct
+  - `symbol`: Trading symbol (e.g., "BTCUSDT")
+  - `interval`: Kline interval (e.g., "1m", "1h", "1d") - see @valid_intervals
+  - `opts`: Optional parameters
+    - `:start_time` - Start time in milliseconds (inclusive)
+    - `:end_time` - End time in milliseconds (inclusive)
+    - `:timezone` - Timezone for kline interpretation (default: "0" UTC)
+    - `:limit` - Number of klines to return (default: 500, max: 100000)
+    - `:batch_delay_ms` - Delay between batch requests in milliseconds (default: 100)
+    - `:return_partial_on_error` - Return partial results if an error occurs mid-fetch (default: false)
+
+  ## Returns
+  - `{:ok, [%Kline{}]}` - List of parsed kline structs on success
+  - `{:error, reason}` - Error details on failure
+
+  ## Important Notes
+  - For limits > 1000, multiple API calls will be made automatically
+  - Each API call counts toward Binance's rate limits (1 weight per request)
+  - If fewer candles exist than requested, returns all available candles
+  - Fetching stops early if a partial batch is returned (end of available data)
+  - Be mindful of rate limits when requesting large amounts of data
+  - Maximum limit is capped at 100,000 candles to prevent excessive API usage
+
+  ## Examples
+  ```elixir
+  # Get 5000 1-hour klines (will make 5 API calls)
+  {:ok, klines} = PublicClient.get_klines_bulk(client, "BTCUSDT", "1h", limit: 5000)
+
+  # Get 2500 klines with specific start time
+  {:ok, klines} = PublicClient.get_klines_bulk(client, "BTCUSDT", "1d",
+    start_time: 1609459200000,
+    limit: 2500
+  )
+
+  # Get all available klines in a date range (may be > 1000)
+  {:ok, klines} = PublicClient.get_klines_bulk(client, "BTCUSDT", "15m",
+    start_time: 1609459200000,
+    end_time: 1640995199000,
+    limit: 50000  # Will fetch up to this many, or all available
+  )
+
+  # Customize batch delay for rate limit management
+  {:ok, klines} = PublicClient.get_klines_bulk(client, "BTCUSDT", "1h",
+    limit: 5000,
+    batch_delay_ms: 200  # 200ms between batches
+  )
+
+  # Return partial results on error (useful for long-running fetches)
+  {:ok, klines} = PublicClient.get_klines_bulk(client, "BTCUSDT", "1h",
+    limit: 50000,
+    return_partial_on_error: true  # Returns data fetched before error
+  )
+  ```
+  """
+  def get_klines_bulk(%__MODULE__{} = client, symbol, interval, opts \\ []) do
+    requested_limit = Keyword.get(opts, :limit, 500)
+
+    Logger.debug(
+      "Getting klines bulk for #{symbol} at #{interval} interval with limit: #{requested_limit}"
+    )
+
+    if requested_limit <= 1000 do
+      # Use existing single-request function for small requests
+      get_klines(client, symbol, interval, opts)
+    else
+      # Validate inputs first
+      with :ok <- validate_symbol(symbol),
+           :ok <- validate_interval(interval),
+           :ok <- validate_bulk_limit(requested_limit) do
+        batch_delay_ms = Keyword.get(opts, :batch_delay_ms, 100)
+        fetch_klines_in_batches(client, symbol, interval, opts, requested_limit, batch_delay_ms)
+      else
+        {:error, reason} = error ->
+          Logger.error("Failed to get klines bulk: #{inspect(reason)}")
+          error
+      end
+    end
+  end
+
+  @doc """
   Gets the current server time from Binance.
 
   This is useful for synchronizing local time with Binance servers
@@ -351,6 +439,200 @@ defmodule CryptoExchange.Binance.PublicClient do
 
   defp validate_limit(limit) do
     {:error, {:invalid_limit, "Limit must be between 1 and 1000, got: #{inspect(limit)}"}}
+  end
+
+  defp validate_bulk_limit(limit) when is_integer(limit) and limit > 0 and limit <= 100_000,
+    do: :ok
+
+  defp validate_bulk_limit(limit) when is_integer(limit) and limit > 100_000 do
+    {:error,
+     {:invalid_limit,
+      "Bulk limit must not exceed 100,000 candles (got: #{limit}). This protects against excessive API usage."}}
+  end
+
+  defp validate_bulk_limit(limit) do
+    {:error, {:invalid_limit, "Bulk limit must be a positive integer, got: #{inspect(limit)}"}}
+  end
+
+  # Batch fetching logic for getting more than 1000 klines
+  defp fetch_klines_in_batches(client, symbol, interval, opts, total_limit, batch_delay_ms) do
+    Logger.debug("Fetching #{total_limit} klines in batches of 1000 (delay: #{batch_delay_ms}ms)")
+
+    # Start fetching with empty accumulator (will be built in reverse)
+    case fetch_batch(client, symbol, interval, opts, [], total_limit, 0, batch_delay_ms) do
+      {:ok, reversed_klines} ->
+        # Reverse the accumulated list to get correct chronological order
+        {:ok, Enum.reverse(reversed_klines)}
+
+      error ->
+        error
+    end
+  end
+
+  defp fetch_batch(
+         _client,
+         _symbol,
+         _interval,
+         _opts,
+         accumulated,
+         remaining,
+         _batch_num,
+         _batch_delay_ms
+       )
+       when remaining <= 0 do
+    Logger.debug("Completed fetching all requested klines. Total: #{length(accumulated)}")
+    {:ok, accumulated}
+  end
+
+  defp fetch_batch(
+         client,
+         symbol,
+         interval,
+         opts,
+         accumulated,
+         remaining,
+         batch_num,
+         batch_delay_ms
+       ) do
+    current_batch_size = min(remaining, 1000)
+    batch_opts = Keyword.put(opts, :limit, current_batch_size)
+
+    # If we have previous results, set start_time to continue from where we left off
+    batch_opts =
+      case List.last(accumulated) do
+        nil ->
+          # First batch - use original start_time if provided
+          batch_opts
+
+        %Kline{kline_close_time: last_close_time} ->
+          # Subsequent batch - start from the millisecond after the last kline's close time
+          # This ensures no gaps or duplicates
+          new_start_time = last_close_time + 1
+
+          # Check if we've exceeded end_time boundary (if provided)
+          case Keyword.get(opts, :end_time) do
+            nil ->
+              Keyword.put(batch_opts, :start_time, new_start_time)
+
+            end_time when new_start_time > end_time ->
+              # We've reached the end_time boundary, stop fetching
+              Logger.debug("Reached end_time boundary (#{end_time}), stopping batch fetch")
+              Keyword.put(batch_opts, :limit, 0)
+
+            _end_time ->
+              Keyword.put(batch_opts, :start_time, new_start_time)
+          end
+      end
+
+    Logger.debug(
+      "Fetching batch #{batch_num + 1}, requesting #{current_batch_size} klines (#{length(accumulated)} accumulated so far)"
+    )
+
+    # Check if limit was set to 0 (end_time boundary reached)
+    if Keyword.get(batch_opts, :limit, current_batch_size) == 0 do
+      Logger.debug("Limit set to 0 (end_time boundary reached), completing fetch")
+      {:ok, accumulated}
+    else
+      fetch_batch_request(
+        client,
+        symbol,
+        interval,
+        opts,
+        batch_opts,
+        accumulated,
+        remaining,
+        batch_num,
+        batch_delay_ms,
+        current_batch_size
+      )
+    end
+  end
+
+  defp fetch_batch_request(
+         client,
+         symbol,
+         interval,
+         opts,
+         batch_opts,
+         accumulated,
+         remaining,
+         batch_num,
+         batch_delay_ms,
+         current_batch_size
+       ) do
+    case get_klines(client, symbol, interval, batch_opts) do
+      {:ok, klines} when is_list(klines) ->
+        # Prepend new klines in reverse order for O(1) performance
+        # The final list will be reversed at the end to restore chronological order
+        new_accumulated = Enum.reverse(klines) ++ accumulated
+        fetched_count = length(klines)
+
+        Logger.debug("Batch #{batch_num + 1} returned #{fetched_count} klines")
+
+        cond do
+          # Got fewer klines than requested - we've reached the end of available data
+          fetched_count < current_batch_size ->
+            Logger.info(
+              "Received partial batch (#{fetched_count}/#{current_batch_size}). " <>
+                "Reached end of available data. Total klines: #{length(new_accumulated)}"
+            )
+
+            {:ok, new_accumulated}
+
+          # Got no klines - should not happen after validation, but handle it
+          fetched_count == 0 ->
+            Logger.warning("Batch returned 0 klines. Total klines: #{length(new_accumulated)}")
+            {:ok, new_accumulated}
+
+          # Got a full batch - continue fetching
+          true ->
+            new_remaining = remaining - fetched_count
+
+            # Small delay to respect rate limits (configurable via batch_delay_ms)
+            if new_remaining > 0 and batch_delay_ms > 0 do
+              Process.sleep(batch_delay_ms)
+            end
+
+            fetch_batch(
+              client,
+              symbol,
+              interval,
+              opts,
+              new_accumulated,
+              new_remaining,
+              batch_num + 1,
+              batch_delay_ms
+            )
+        end
+
+      {:error, reason} = error ->
+        # On error, log how many klines we successfully fetched before the error
+        accumulated_count = length(accumulated)
+
+        if accumulated_count > 0 do
+          Logger.error(
+            "Error fetching batch #{batch_num + 1} after successfully fetching #{accumulated_count} klines: #{inspect(reason)}"
+          )
+
+          # Check if return_partial option is enabled
+          if Keyword.get(opts, :return_partial_on_error, false) do
+            Logger.info(
+              "Returning #{accumulated_count} partial klines due to return_partial_on_error option"
+            )
+
+            {:ok, accumulated}
+          else
+            Logger.warning(
+              "Discarding #{accumulated_count} klines. Set return_partial_on_error: true to return partial results on error."
+            )
+
+            error
+          end
+        else
+          Logger.error("Error fetching first batch: #{inspect(reason)}")
+          error
+        end
+    end
   end
 
   defp parse_klines_response(response, symbol, interval) when is_list(response) do

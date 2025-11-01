@@ -17,7 +17,7 @@ defmodule CryptoExchange do
   Get historical OHLC data for backtesting and analysis:
 
   ```elixir
-  # Get last 100 1-hour candles for BTC/USDT
+  # Get last 100 1-hour candles for BTC/USDT (up to 1000 candles)
   {:ok, klines} = CryptoExchange.get_historical_klines("BTCUSDT", "1h", limit: 100)
 
   # Get candles for specific date range
@@ -25,6 +25,9 @@ defmodule CryptoExchange do
     start_time: 1609459200000,  # 2021-01-01
     end_time: 1640995199000     # 2021-12-31
   )
+
+  # Fetch more than 1000 candles using bulk fetching (automatic pagination)
+  {:ok, klines} = CryptoExchange.get_historical_klines_bulk("BTCUSDT", "1h", limit: 5000)
   ```
 
   ## Real-time Data
@@ -142,6 +145,101 @@ defmodule CryptoExchange do
   def get_historical_klines(symbol, interval, opts \\ []) do
     with {:ok, client} <- PublicClient.new(),
          {:ok, klines} <- PublicClient.get_klines(client, symbol, interval, opts) do
+      {:ok, klines}
+    end
+  end
+
+  @doc """
+  Retrieves historical kline/candlestick data with support for fetching more than
+  1000 candles by making multiple paginated requests automatically.
+
+  This is similar to `get_historical_klines/3` but removes the 1000-candle limit
+  by automatically fetching data in batches when needed. Use this function when
+  you need to retrieve large amounts of historical data.
+
+  ## Parameters
+
+  - `symbol` - Trading pair symbol (e.g., "BTCUSDT", "ETHBTC")
+  - `interval` - Candlestick interval (e.g., "1m", "1h", "1d")
+    Valid intervals: "1s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h",
+    "6h", "8h", "12h", "1d", "3d", "1w", "1M"
+  - `opts` - Optional parameters:
+    - `:start_time` - Start timestamp in milliseconds (inclusive)
+    - `:end_time` - End timestamp in milliseconds (inclusive)
+    - `:limit` - Number of klines to return (default: 500, max: 100000)
+    - `:timezone` - Timezone for kline interpretation (default: "0" UTC)
+    - `:batch_delay_ms` - Delay between batch requests in milliseconds (default: 100)
+    - `:return_partial_on_error` - Return partial results if an error occurs mid-fetch (default: false)
+
+  ## Returns
+
+  - `{:ok, [%Kline{}]}` - List of kline structs on success
+  - `{:error, reason}` - Error details on failure
+
+  ## Important Notes
+
+  - For limits > 1000, multiple API calls will be made automatically
+  - Each API call counts toward Binance's rate limits (1 weight per 1000 candles)
+  - If fewer candles exist than requested, returns all available candles
+  - A small delay (default 100ms) is added between batches to respect rate limits
+  - Fetching stops early if a partial batch is returned (end of available data)
+  - Maximum limit is capped at 100,000 candles to prevent excessive API usage
+
+  ## Examples
+
+  ```elixir
+  # Get 5000 1-hour candles (will make 5 API calls)
+  {:ok, klines} = CryptoExchange.get_historical_klines_bulk("BTCUSDT", "1h", limit: 5000)
+
+  # Get 2500 daily candles starting from a specific date
+  {:ok, klines} = CryptoExchange.get_historical_klines_bulk("ETHUSDT", "1d",
+    start_time: 1609459200000,  # 2021-01-01
+    limit: 2500
+  )
+
+  # Get all available 15-minute candles in a date range
+  {:ok, klines} = CryptoExchange.get_historical_klines_bulk("BTCUSDT", "15m",
+    start_time: 1609459200000,  # 2021-01-01
+    end_time: 1640995199000,    # 2021-12-31
+    limit: 50000  # Will fetch up to this many, or all available
+  )
+
+  # Customize batch delay for rate limit management
+  {:ok, klines} = CryptoExchange.get_historical_klines_bulk("BTCUSDT", "1h",
+    limit: 5000,
+    batch_delay_ms: 200  # 200ms between batches
+  )
+
+  # Return partial results on error (useful for long-running fetches)
+  {:ok, klines} = CryptoExchange.get_historical_klines_bulk("BTCUSDT", "1h",
+    limit: 50000,
+    return_partial_on_error: true  # Returns data fetched before error
+  )
+
+  # Process the results
+  IO.puts("Fetched \#{length(klines)} klines")
+  first_kline = List.first(klines)
+  last_kline = List.last(klines)
+  IO.puts("Date range: \#{first_kline.kline_start_time} to \#{last_kline.kline_close_time}")
+  ```
+
+  ## Performance Considerations
+
+  - Fetching 5000 candles takes approximately 5-6 seconds (5 requests + delays)
+  - Binance rate limit: 1200 weight per minute (can fetch ~1.2M candles/minute)
+  - For very large requests (>10,000 candles), consider saving to database incrementally
+
+  ## Rate Limiting
+
+  This function respects Binance's rate limits and includes automatic retry
+  logic with exponential backoff for rate limit errors. A configurable delay
+  (default 100ms) is added between batches to avoid hitting rate limits.
+  """
+  @spec get_historical_klines_bulk(String.t(), String.t(), keyword()) ::
+          {:ok, [CryptoExchange.Models.Kline.t()]} | {:error, term()}
+  def get_historical_klines_bulk(symbol, interval, opts \\ []) do
+    with {:ok, client} <- PublicClient.new(),
+         {:ok, klines} <- PublicClient.get_klines_bulk(client, symbol, interval, opts) do
       {:ok, klines}
     end
   end
