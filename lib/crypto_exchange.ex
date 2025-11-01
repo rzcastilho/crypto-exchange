@@ -166,8 +166,10 @@ defmodule CryptoExchange do
   - `opts` - Optional parameters:
     - `:start_time` - Start timestamp in milliseconds (inclusive)
     - `:end_time` - End timestamp in milliseconds (inclusive)
-    - `:limit` - Number of klines to return (default: 500, no maximum)
+    - `:limit` - Number of klines to return (default: 500, max: 100000)
     - `:timezone` - Timezone for kline interpretation (default: "0" UTC)
+    - `:batch_delay_ms` - Delay between batch requests in milliseconds (default: 100)
+    - `:return_partial_on_error` - Return partial results if an error occurs mid-fetch (default: false)
 
   ## Returns
 
@@ -179,8 +181,9 @@ defmodule CryptoExchange do
   - For limits > 1000, multiple API calls will be made automatically
   - Each API call counts toward Binance's rate limits (1 weight per 1000 candles)
   - If fewer candles exist than requested, returns all available candles
-  - A small delay (100ms) is added between batches to respect rate limits
+  - A small delay (default 100ms) is added between batches to respect rate limits
   - Fetching stops early if a partial batch is returned (end of available data)
+  - Maximum limit is capped at 100,000 candles to prevent excessive API usage
 
   ## Examples
 
@@ -201,11 +204,23 @@ defmodule CryptoExchange do
     limit: 50000  # Will fetch up to this many, or all available
   )
 
+  # Customize batch delay for rate limit management
+  {:ok, klines} = CryptoExchange.get_historical_klines_bulk("BTCUSDT", "1h",
+    limit: 5000,
+    batch_delay_ms: 200  # 200ms between batches
+  )
+
+  # Return partial results on error (useful for long-running fetches)
+  {:ok, klines} = CryptoExchange.get_historical_klines_bulk("BTCUSDT", "1h",
+    limit: 50000,
+    return_partial_on_error: true  # Returns data fetched before error
+  )
+
   # Process the results
   IO.puts("Fetched \#{length(klines)} klines")
   first_kline = List.first(klines)
   last_kline = List.last(klines)
-  IO.puts("Date range: \#{first_kline.open_time} to \#{last_kline.close_time}")
+  IO.puts("Date range: \#{first_kline.kline_start_time} to \#{last_kline.kline_close_time}")
   ```
 
   ## Performance Considerations
@@ -217,8 +232,8 @@ defmodule CryptoExchange do
   ## Rate Limiting
 
   This function respects Binance's rate limits and includes automatic retry
-  logic with exponential backoff for rate limit errors. A 100ms delay is added
-  between batches to avoid hitting rate limits.
+  logic with exponential backoff for rate limit errors. A configurable delay
+  (default 100ms) is added between batches to avoid hitting rate limits.
   """
   @spec get_historical_klines_bulk(String.t(), String.t(), keyword()) ::
           {:ok, [CryptoExchange.Models.Kline.t()]} | {:error, term()}

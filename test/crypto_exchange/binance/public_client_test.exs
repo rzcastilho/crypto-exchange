@@ -123,6 +123,75 @@ defmodule CryptoExchange.Binance.PublicClientTest do
   # Note: We cannot directly test private functions in Elixir.
   # The validation logic is tested through the public get_klines/4 function above.
 
+  describe "get_klines_bulk/4 - parameter validation" do
+    setup do
+      {:ok, client} = PublicClient.new()
+      %{client: client}
+    end
+
+    test "validates symbol is non-empty string", %{client: client} do
+      assert {:error, {:invalid_symbol, _}} =
+               PublicClient.get_klines_bulk(client, "", "1h", limit: 2000)
+
+      assert {:error, {:invalid_symbol, _}} =
+               PublicClient.get_klines_bulk(client, nil, "1h", limit: 2000)
+    end
+
+    test "validates interval is valid", %{client: client} do
+      assert {:error, {:invalid_interval, _}} =
+               PublicClient.get_klines_bulk(client, "BTCUSDT", "invalid", limit: 2000)
+
+      assert {:error, {:invalid_interval, _}} =
+               PublicClient.get_klines_bulk(client, "BTCUSDT", "2m", limit: 2000)
+    end
+
+    test "validates bulk limit is positive", %{client: client} do
+      assert {:error, {:invalid_limit, _}} =
+               PublicClient.get_klines_bulk(client, "BTCUSDT", "1h", limit: 0)
+
+      assert {:error, {:invalid_limit, _}} =
+               PublicClient.get_klines_bulk(client, "BTCUSDT", "1h", limit: -1)
+    end
+
+    test "validates bulk limit does not exceed maximum", %{client: client} do
+      assert {:error, {:invalid_limit, message}} =
+               PublicClient.get_klines_bulk(client, "BTCUSDT", "1h", limit: 100_001)
+
+      assert message =~ "100,000"
+      assert message =~ "excessive API usage"
+    end
+
+    test "accepts valid bulk limit values", %{client: client} do
+      # These should pass validation (may fail at HTTP level which is ok for this test)
+      for limit <- [1001, 5000, 50_000, 100_000] do
+        result = PublicClient.get_klines_bulk(client, "BTCUSDT", "1h", limit: limit)
+
+        case result do
+          {:error, {:invalid_limit, _}} ->
+            flunk("Limit #{limit} should be valid but was rejected")
+
+          _ ->
+            :ok
+        end
+      end
+    end
+
+    test "uses single request for limit <= 1000", %{client: client} do
+      # For limit <= 1000, it should delegate to get_klines/4
+      # We can't test the actual behavior without mocking, but we can verify
+      # it doesn't reject the request based on validation
+      result = PublicClient.get_klines_bulk(client, "BTCUSDT", "1h", limit: 1000)
+
+      # Should not fail due to validation (may fail at HTTP level)
+      case result do
+        {:error, {:invalid_limit, _}} -> flunk("Limit 1000 should be valid")
+        {:error, {:invalid_symbol, _}} -> flunk("Symbol should be valid")
+        {:error, {:invalid_interval, _}} -> flunk("Interval should be valid")
+        _ -> :ok
+      end
+    end
+  end
+
   describe "RetryConfig" do
     test "default/0 returns default configuration" do
       config = PublicClient.RetryConfig.default()
