@@ -484,7 +484,16 @@ defmodule CryptoExchange.Binance.PublicClient do
     {:ok, accumulated}
   end
 
-  defp fetch_batch(client, symbol, interval, opts, accumulated, remaining, batch_num, batch_delay_ms) do
+  defp fetch_batch(
+         client,
+         symbol,
+         interval,
+         opts,
+         accumulated,
+         remaining,
+         batch_num,
+         batch_delay_ms
+       ) do
     current_batch_size = min(remaining, 1000)
     batch_opts = Keyword.put(opts, :limit, current_batch_size)
 
@@ -524,11 +533,33 @@ defmodule CryptoExchange.Binance.PublicClient do
       Logger.debug("Limit set to 0 (end_time boundary reached), completing fetch")
       {:ok, accumulated}
     else
-      fetch_batch_request(client, symbol, interval, opts, batch_opts, accumulated, remaining, batch_num, batch_delay_ms, current_batch_size)
+      fetch_batch_request(
+        client,
+        symbol,
+        interval,
+        opts,
+        batch_opts,
+        accumulated,
+        remaining,
+        batch_num,
+        batch_delay_ms,
+        current_batch_size
+      )
     end
   end
 
-  defp fetch_batch_request(client, symbol, interval, opts, batch_opts, accumulated, remaining, batch_num, batch_delay_ms, current_batch_size) do
+  defp fetch_batch_request(
+         client,
+         symbol,
+         interval,
+         opts,
+         batch_opts,
+         accumulated,
+         remaining,
+         batch_num,
+         batch_delay_ms,
+         current_batch_size
+       ) do
     case get_klines(client, symbol, interval, batch_opts) do
       {:ok, klines} when is_list(klines) ->
         # Prepend new klines in reverse order for O(1) performance
